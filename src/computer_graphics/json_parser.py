@@ -39,7 +39,9 @@ def extract_json(raw_text: str) -> list[dict]:
     if not raw_text or not raw_text.strip():
         raise JSONParseError("La risposta del modello è vuota.")
 
-    logger.debug("Testo grezzo ricevuto (%d caratteri):\n%s", len(raw_text), raw_text[:500])
+    logger.debug(
+        "Testo grezzo ricevuto (%d caratteri):\n%s", len(raw_text), raw_text[:500]
+    )  # noqa: E501
 
     # Strategia 1: parsing diretto
     result = _try_direct_parse(raw_text)
@@ -69,6 +71,7 @@ def extract_json(raw_text: str) -> list[dict]:
 # Strategie private di parsing
 # ---------------------------------------------------------------------------
 
+
 def _try_direct_parse(text: str) -> list[dict] | None:
     """Tenta il parsing JSON diretto del testo."""
     try:
@@ -86,7 +89,7 @@ def _try_regex_extract(text: str) -> list[dict] | None:
     Gestisce JSON multi-riga e preceduto/seguito da testo.
     """
     # Pattern: primo [ ... ultimo ] con tutto in mezzo (DOTALL)
-    pattern = re.compile(r'\[.*\]', re.DOTALL)
+    pattern = re.compile(r"\[.*\]", re.DOTALL)
     match = pattern.search(text)
 
     if not match:
@@ -116,17 +119,17 @@ def _try_aggressive_clean(text: str) -> list[dict] | None:
     cleaned = text
 
     # Rimuove blocchi markdown ```json ... ```
-    cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
-    cleaned = re.sub(r'```\s*', '', cleaned)
+    cleaned = re.sub(r"```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"```\s*", "", cleaned)
 
     # Rimuove commenti JavaScript // ...
-    cleaned = re.sub(r'//[^\n]*', '', cleaned)
+    cleaned = re.sub(r"//[^\n]*", "", cleaned)
 
     # Rimuove commenti /* ... */
-    cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
 
     # Rimuove virgole finali (trailing commas) prima di ] o }
-    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
 
     # Prova prima il regex sull'output pulito
     return _try_regex_extract(cleaned)

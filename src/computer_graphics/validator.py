@@ -16,10 +16,27 @@ logger = logging.getLogger(__name__)
 
 # Nomi di oggetti conosciuti (fallback per suggerimenti)
 KNOWN_ASSET_NAMES: set[str] = {
-    "table", "chair", "lamp", "desk", "sofa", "bed",
-    "bookshelf", "cabinet", "door", "window", "floor",
-    "monitor", "keyboard", "plant", "rug", "curtain",
-    "fridge", "stove", "sink", "toilet", "bathtub",
+    "table",
+    "chair",
+    "lamp",
+    "desk",
+    "sofa",
+    "bed",
+    "bookshelf",
+    "cabinet",
+    "door",
+    "window",
+    "floor",
+    "monitor",
+    "keyboard",
+    "plant",
+    "rug",
+    "curtain",
+    "fridge",
+    "stove",
+    "sink",
+    "toilet",
+    "bathtub",
 }
 
 
@@ -47,10 +64,14 @@ class SceneObject(BaseModel):
     def normalise_name(cls, v: Any) -> str:
         """Normalizza il nome: minuscolo, strip, underscore al posto degli spazi."""
         if not isinstance(v, str):
-            raise ValueError(f"Il campo 'name' deve essere una stringa, ricevuto: {type(v)}")
+            raise ValueError(
+                f"Il campo 'name' deve essere una stringa, ricevuto: {type(v)}"
+            )  # noqa: E501
         normalised = str(v).strip().lower().replace(" ", "_")
         if not normalised:
-            raise ValueError("Il campo 'name' non può essere vuoto dopo la normalizzazione.")
+            raise ValueError(
+                "Il campo 'name' non può essere vuoto dopo la normalizzazione."
+            )  # noqa: E501
         return normalised
 
     @field_validator("x", "y", "z", "rot_x", "rot_y", "rot_z", "scale", mode="before")
@@ -63,21 +84,22 @@ class SceneObject(BaseModel):
             try:
                 return float(v.strip())
             except ValueError as exc:
-                raise ValueError(
-                    f"Impossibile convertire '{v}' in float."
-                ) from exc
+                raise ValueError(f"Impossibile convertire '{v}' in float.") from exc
         raise ValueError(f"Tipo non supportato per campo numerico: {type(v)}")
 
     @model_validator(mode="after")
-    def check_reasonable_bounds(self) -> "SceneObject":
+    def check_reasonable_bounds(self) -> SceneObject:
         """Avvisa se le coordinate sembrano fuori scala."""
-        MAX_COORD = 50.0
+        max_coord = 50.0
         for field_name, value in [("x", self.x), ("y", self.y), ("z", self.z)]:
-            if abs(value) > MAX_COORD:
+            if abs(value) > max_coord:
                 logger.warning(
                     "Oggetto '%s': valore %s=%.2f sembra fuori scala "
                     "(max atteso: ±%.0f unità Blender).",
-                    self.name, field_name, value, MAX_COORD,
+                    self.name,
+                    field_name,
+                    value,
+                    max_coord,
                 )
         return self
 
@@ -96,7 +118,8 @@ class SceneObject(BaseModel):
             if known in self.name or self.name in known:
                 logger.debug(
                     "Nome '%s' non in libreria, uso '%s' come fallback.",
-                    self.name, known,
+                    self.name,
+                    known,
                 )
                 return known
 
@@ -117,12 +140,12 @@ def validate_objects(raw_objects: list[dict]) -> list[SceneObject]:
         ValueError: Se la lista è vuota o un oggetto non è recuperabile.
     """
     if not raw_objects:
-        raise ValueError("La lista di oggetti è vuota. Il modello non ha generato alcun oggetto.")
+        raise ValueError(
+            "La lista di oggetti è vuota. Il modello non ha generato alcun oggetto."
+        )  # noqa: E501
 
     if not isinstance(raw_objects, list):
-        raise ValueError(
-            f"Attesa una lista, ricevuto: {type(raw_objects)}"
-        )
+        raise ValueError(f"Attesa una lista, ricevuto: {type(raw_objects)}")
 
     validated: list[SceneObject] = []
     errors: list[str] = []
@@ -143,7 +166,11 @@ def validate_objects(raw_objects: list[dict]) -> list[SceneObject]:
             validated.append(scene_obj)
             logger.debug(
                 "Oggetto #%d validato: %s @ (%.2f, %.2f, %.2f)",
-                i, scene_obj.name, scene_obj.x, scene_obj.y, scene_obj.z,
+                i,
+                scene_obj.name,
+                scene_obj.x,
+                scene_obj.y,
+                scene_obj.z,
             )
         except Exception as exc:
             errors.append(f"Oggetto #{i} (name={obj.get('name', '?')}): {exc}")
@@ -159,6 +186,7 @@ def validate_objects(raw_objects: list[dict]) -> list[SceneObject]:
 
     logger.info(
         "Validazione completata: %d/%d oggetti validi.",
-        len(validated), len(raw_objects),
+        len(validated),
+        len(raw_objects),
     )
     return validated

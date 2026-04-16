@@ -8,12 +8,11 @@ Non importarlo in contesti Python standard.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    pass  # bpy non disponibile fuori da Blender
+    import bpy  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,7 @@ def setup_camera(location: tuple = (7.0, -7.0, 5.0)) -> None:
     logger.debug("Camera posizionata in %s.", location)
 
 
-def import_asset(name: str, assets_dir: str | Path) -> "bpy.types.Object":
+def import_asset(name: str, assets_dir: str | Path) -> Any:
     """
     Importa un modello 3D dalla libreria locale.
 
@@ -111,7 +110,8 @@ def import_asset(name: str, assets_dir: str | Path) -> "bpy.types.Object":
     # Proxy geometrico se l'asset non è trovato
     logger.warning(
         "Asset '%s' non trovato in %s. Creo proxy cubo.",
-        name, assets_dir,
+        name,
+        assets_dir,
     )
     return _create_proxy(name)
 
@@ -120,7 +120,7 @@ def _import_file(
     filepath: str,
     name: str,
     ext: str,
-) -> "bpy.types.Object":
+) -> Any:
     """Importa un file 3D in base all'estensione."""
     import bpy  # noqa: PLC0415
 
@@ -139,7 +139,7 @@ def _import_file(
     return imported
 
 
-def _create_proxy(name: str) -> "bpy.types.Object":
+def _create_proxy(name: str) -> Any:
     """
     Crea un cubo colorato come proxy per asset mancanti.
 
@@ -165,7 +165,7 @@ def _create_proxy(name: str) -> "bpy.types.Object":
 
 
 def place_object(
-    obj: "bpy.types.Object",
+    obj: Any,
     x: float,
     y: float,
     z: float,
@@ -191,7 +191,12 @@ def place_object(
 
     logger.debug(
         "Oggetto '%s' → pos=(%.2f, %.2f, %.2f) rot_z=%.3f scale=%.2f",
-        obj.name, x, y, z, rot_z, scale,
+        obj.name,
+        x,
+        y,
+        z,
+        rot_z,
+        scale,
     )
 
 
@@ -214,11 +219,7 @@ def populate_scene(
 
     for obj_data in objects:
         # Supporta sia SceneObject Pydantic che dict
-        if hasattr(obj_data, "model_dump"):
-            data = obj_data.model_dump()
-        else:
-            data = obj_data
-
+        data = obj_data.model_dump() if hasattr(obj_data, "model_dump") else obj_data
         name = data["name"]
 
         try:

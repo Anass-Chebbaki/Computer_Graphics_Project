@@ -41,29 +41,34 @@ def _setup_logging(verbose: bool) -> None:
 @click.command()
 @click.argument("description", required=False, default=None)
 @click.option(
-    "--interactive", "-i",
+    "--interactive",
+    "-i",
     is_flag=True,
     help="Chiede la descrizione interattivamente.",
 )
 @click.option(
-    "--file", "-f",
+    "--file",
+    "-f",
     type=click.Path(exists=True),
     help="Legge la descrizione da file .txt.",
 )
 @click.option(
-    "--model", "-m",
+    "--model",
+    "-m",
     default="llama3",
     show_default=True,
     help="Nome del modello Ollama da usare.",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     default="scene_objects.json",
     show_default=True,
     help="File JSON di output con gli oggetti generati.",
 )
 @click.option(
-    "--retries", "-r",
+    "--retries",
+    "-r",
     default=3,
     show_default=True,
     help="Numero massimo di tentativi.",
@@ -75,7 +80,8 @@ def _setup_logging(verbose: bool) -> None:
     help="URL del server Ollama.",
 )
 @click.option(
-    "--verbose", "-v",
+    "--verbose",
+    "-v",
     is_flag=True,
     help="Output di debug dettagliato.",
 )
@@ -138,11 +144,14 @@ def main(
             verbose=True,
         )
     except OllamaConnectionError as exc:
-        console.print(f"\n[bold red]Errore connessione Ollama:[/bold red] {exc}", err=True)
-        console.print(
-            "\n[yellow]Suggerimento:[/yellow] Avviare Ollama con [bold]ollama serve[/bold] "
-            "e scaricare il modello con [bold]ollama pull llama3[/bold]."
+        msg = f"\n[bold red]Errore connessione Ollama:[/bold red] {exc}"
+        console.print(msg, err=True)
+        suggestion = (
+            "\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
+            "[bold]ollama serve[/bold] e scaricare il modello con "
+            "[bold]ollama pull llama3[/bold]."
         )
+        console.print(suggestion)
         raise SystemExit(1) from exc
     except RuntimeError as exc:
         console.print(f"\n[bold red]Errore pipeline:[/bold red] {exc}", err=True)
@@ -155,9 +164,11 @@ def main(
     with output_path.open("w", encoding="utf-8") as fp:
         json.dump(output_data, fp, indent=2, ensure_ascii=False)
 
-    console.print(
-        f"\n[bold green]✓[/bold green] Output salvato in: [cyan]{output_path.resolve()}[/cyan]"
+    output_msg = (
+        f"\n[bold green]✓[/bold green] Output salvato in: "
+        f"[cyan]{output_path.resolve()}[/cyan]"
     )
+    console.print(output_msg)
     console.print(
         "\n[dim]Passo successivo:[/dim] Eseguire Blender con:\n"
         f"  [bold]blender --background --python scripts/blender_runner.py "

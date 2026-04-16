@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from computer_graphics.json_parser import JSONParseError, extract_json
@@ -52,7 +50,7 @@ class TestExtractJson:
         assert result[0]["name"] == "desk"
 
     def test_numeric_values_preserved(self) -> None:
-        text = '[{"name": "chair", "x": 1.5, "y": -0.8, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785}]'
+        text = '[{"name": "chair", "x": 1.5, "y": -0.8, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785}]'  # noqa: E501
         result = extract_json(text)
         assert result[0]["x"] == pytest.approx(1.5)
         assert result[0]["rot_z"] == pytest.approx(0.785)

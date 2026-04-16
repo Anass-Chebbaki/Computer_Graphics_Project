@@ -2,14 +2,15 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [main, develop]
+    branches:
+      - main
+      - develop
 
 jobs:
-  # -----------------------------------------------------------------------
-  # Lint e type checking
-  # -----------------------------------------------------------------------
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
@@ -29,22 +30,25 @@ jobs:
         run: ruff check src/ tests/ scripts/
 
       - name: Black format check
-        run: black --check src/ tests/ scripts/
+        run: black --check --target-version py311 src/ tests/ scripts/
 
       - name: MyPy type check
         run: mypy src/computer_graphics/ --ignore-missing-imports
 
-  # -----------------------------------------------------------------------
-  # Test suite
-  # -----------------------------------------------------------------------
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
 
     steps:
       - uses: actions/checkout@v4
@@ -69,19 +73,20 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # -----------------------------------------------------------------------
-  # Security scan
-  # -----------------------------------------------------------------------
   security:
     name: Security Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - run: pip install bandit[toml] safety
+
       - name: Bandit security scan
         run: bandit -r src/ -ll
+
       - name: Safety dependency check
         run: safety check

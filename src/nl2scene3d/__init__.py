@@ -13,8 +13,8 @@ __version__ = "1.0.0"
 __author__ = "Your Name"
 __license__ = "MIT"
 
-from computer_graphics.orchestrator import generate_scene_objects
 from computer_graphics.ollama_client import OllamaClient
+from computer_graphics.orchestrator import generate_scene_objects
 from computer_graphics.validator import SceneObject, validate_objects
 
 __all__ = [

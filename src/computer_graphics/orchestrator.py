@@ -9,7 +9,6 @@ con logica di retry automatico.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -58,14 +57,16 @@ def generate_scene_objects(
 
     # Verifica connessione Ollama
     if verbose:
-        with console.status("[bold yellow]Verifica connessione Ollama...[/bold yellow]"):
+        with console.status(
+            "[bold yellow]Verifica connessione Ollama...[/bold yellow]"
+        ):  # noqa: E501
             if not client.health_check():
                 raise OllamaConnectionError(
                     "Ollama non risponde. Avviare con: ollama serve"
                 )
         console.print("[bold green]✓[/bold green] Ollama connesso.")
 
-    last_exception: Optional[Exception] = None
+    last_exception: Exception | None = None
 
     for attempt in range(1, max_retries + 1):
         if verbose:
@@ -104,7 +105,8 @@ def generate_scene_objects(
 
             logger.info(
                 "Pipeline completata: %d oggetti generati al tentativo %d.",
-                len(validated), attempt,
+                len(validated),
+                attempt,
             )
             return validated
 
@@ -112,7 +114,9 @@ def generate_scene_objects(
             last_exception = exc
             logger.warning(
                 "Tentativo %d/%d fallito: %s",
-                attempt, max_retries, exc,
+                attempt,
+                max_retries,
+                exc,
             )
             if verbose:
                 console.print(

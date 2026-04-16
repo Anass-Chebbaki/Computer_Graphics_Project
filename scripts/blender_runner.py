@@ -4,7 +4,8 @@ Script da eseguire DENTRO Blender per costruire la scena 3D.
 
 Uso da terminale:
     blender --background --python scripts/blender_runner.py -- objects.json
-    blender --background --python scripts/blender_runner.py -- objects.json --render output.png
+    blender --background --python scripts/blender_runner.py -- \
+        objects.json --render output.png
 
 Uso da Blender Text Editor:
     Impostare OBJECTS_JSON_PATH e ASSETS_DIR nella sezione CONFIG
@@ -23,7 +24,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 OBJECTS_JSON_PATH: str = "scene_objects.json"
 ASSETS_DIR: str = str(Path(__file__).parent.parent / "assets" / "models")
-RENDER_OUTPUT: str = str(Path(__file__).parent.parent / "assets" / "renders" / "output.png")
+_BASE_RENDER_DIR = Path(__file__).parent.parent / "assets" / "renders"
+RENDER_OUTPUT: str = str(_BASE_RENDER_DIR / "output.png")
 RENDER_ENABLED: bool = True
 # ---------------------------------------------------------------------------
 
@@ -45,7 +47,7 @@ def parse_blender_args() -> tuple[str, str | None]:
     argv = sys.argv
     try:
         sep_index = argv.index("--")
-        args = argv[sep_index + 1:]
+        args = argv[sep_index + 1 :]
     except ValueError:
         return OBJECTS_JSON_PATH, RENDER_OUTPUT if RENDER_ENABLED else None
 
@@ -106,6 +108,7 @@ def main() -> None:
     # Render opzionale
     if render_output:
         from computer_graphics.blender.renderer import render_scene
+
         logger.info("Avvio render → %s", render_output)
         render_scene(render_output)
         logger.info("Render completato.")

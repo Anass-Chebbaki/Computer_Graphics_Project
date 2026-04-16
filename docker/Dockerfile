@@ -21,13 +21,14 @@ COPY config/ ./config/
 COPY scripts/ ./scripts/
 
 # Variabili d'ambiente configurabili
-ENV OLLAMA_URL=http://host.docker.internal:11434
+# Su Docker Desktop usa host.docker.internal, su Linux/CI usa localhost
+ENV OLLAMA_URL=http://localhost:11434
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Healthcheck
+# Healthcheck - usa localhost per compatibilità con Linux
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://host.docker.internal:11434/api/tags || exit 1
+    CMD curl -f http://localhost:11434/api/tags || exit 1
 
 ENTRYPOINT ["python", "scripts/run_pipeline.py"]
 CMD ["--interactive"]

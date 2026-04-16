@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
 
 import requests
 from requests.exceptions import ConnectionError, ReadTimeout, RequestException
@@ -111,7 +110,7 @@ class OllamaClient:
             except ReadTimeout as exc:
                 raise OllamaConnectionError(
                     f"Timeout dopo {self.timeout}s in attesa della risposta. "
-                    "Considerare di aumentare il parametro timeout o usare un modello più leggero."
+                    "Considerare di aumentare il parametro timeout o usare un modello più leggero."  # noqa: E501
                 ) from exc
 
             except RequestException as exc:
@@ -134,7 +133,7 @@ class OllamaClient:
                 self.base_url + self.TAGS_ENDPOINT,
                 timeout=5,
             )
-            return response.status_code == 200
+            return bool(response.status_code == 200)
         except RequestException:
             return False
 
@@ -177,7 +176,10 @@ class OllamaClient:
             OllamaResponseError: Se la struttura è inattesa.
         """
         try:
-            return data["message"]["content"]
+            content = data["message"]["content"]
+            if not isinstance(content, str):
+                raise TypeError(f"Expected str, got {type(content)}")
+            return content
         except (KeyError, TypeError) as exc:
             raise OllamaResponseError(
                 f"Struttura della risposta Ollama non riconosciuta. "

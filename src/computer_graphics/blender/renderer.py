@@ -45,7 +45,10 @@ def configure_render(
 
     logger.debug(
         "Render configurato: %s @ %dx%d, %d samples.",
-        engine, resolution_x, resolution_y, samples,
+        engine,
+        resolution_x,
+        resolution_y,
+        samples,
     )
 
 

@@ -8,13 +8,12 @@ determina la qualità e la coerenza del JSON restituito dal modello.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Prompt di sistema — può essere caricato da file esterno
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT_DEFAULT = """\
+SYSTEM_PROMPT_DEFAULT = r"""
 Sei un assistente specializzato nella generazione di layout di scene 3D per Blender.
 
 REGOLA ASSOLUTA: Rispondi ESCLUSIVAMENTE con un array JSON valido.
@@ -42,14 +41,14 @@ Vincoli spaziali:
 
 Esempio di output CORRETTO per "un tavolo con una sedia e una lampada":
 [
-  {"name": "table",  "x": 0.0,  "y": 0.0,  "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},
-  {"name": "chair",  "x": 0.0,  "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},
-  {"name": "lamp",   "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785, "scale": 1.0}
+  {"name": "table",  "x": 0.0,  "y": 0.0,  "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},  # noqa: E501
+  {"name": "chair",  "x": 0.0,  "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},  # noqa: E501
+  {"name": "lamp",   "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785, "scale": 1.0}  # noqa: E501
 ]
 
 Non includere oggetti non menzionati dall'utente.
 Non inventare campi aggiuntivi non presenti nello schema.
-"""
+"""  # noqa: E501
 
 
 class PromptBuilder:
@@ -64,13 +63,11 @@ class PromptBuilder:
     def __init__(
         self,
         model: str = "llama3",
-        system_prompt: Optional[str] = None,
-        system_prompt_file: Optional[str | Path] = None,
+        system_prompt: str | None = None,
+        system_prompt_file: str | Path | None = None,
     ) -> None:
         self.model = model
-        self.system_prompt = self._load_system_prompt(
-            system_prompt, system_prompt_file
-        )
+        self.system_prompt = self._load_system_prompt(system_prompt, system_prompt_file)
 
     # ------------------------------------------------------------------
     # Metodi pubblici
@@ -100,9 +97,9 @@ class PromptBuilder:
             ],
             "stream": False,
             "options": {
-                "temperature": 0.2,      # bassa temperatura = output più deterministico
+                "temperature": 0.2,  # bassa temperatura = output più deterministico
                 "top_p": 0.9,
-                "num_predict": 1024,     # limite token risposta
+                "num_predict": 1024,  # limite token risposta
             },
         }
 
@@ -112,8 +109,8 @@ class PromptBuilder:
 
     def _load_system_prompt(
         self,
-        prompt_text: Optional[str],
-        prompt_file: Optional[str | Path],
+        prompt_text: str | None,
+        prompt_file: str | Path | None,
     ) -> str:
         """
         Carica il prompt di sistema con questa priorità:

@@ -7,9 +7,7 @@ prima di passarla alla fase di prompt engineering.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -30,8 +28,8 @@ class InputHandler:
     MIN_DESCRIPTION_LENGTH: int = 10
     MAX_DESCRIPTION_LENGTH: int = 2000
 
-    def __init__(self, description: Optional[str] = None) -> None:
-        self._description: Optional[str] = description
+    def __init__(self, description: str | None = None) -> None:
+        self._description: str | None = description
 
     # ------------------------------------------------------------------
     # Metodi pubblici
@@ -56,12 +54,12 @@ class InputHandler:
         return self._prompt_user()
 
     @classmethod
-    def from_string(cls, description: str) -> "InputHandler":
+    def from_string(cls, description: str) -> InputHandler:
         """Factory: crea un handler con descrizione predefinita."""
         return cls(description=description)
 
     @classmethod
-    def from_file(cls, filepath: str | Path) -> "InputHandler":
+    def from_file(cls, filepath: str | Path) -> InputHandler:
         """
         Factory: legge la descrizione da un file di testo.
 
@@ -116,13 +114,13 @@ class InputHandler:
 
         if len(cleaned) < self.MIN_DESCRIPTION_LENGTH:
             raise ValueError(
-                f"Descrizione troppo breve (min {self.MIN_DESCRIPTION_LENGTH} caratteri). "
+                f"Descrizione troppo breve (min {self.MIN_DESCRIPTION_LENGTH} caratteri). "  # noqa: E501
                 f"Fornire più dettagli sulla scena desiderata."
             )
 
         if len(cleaned) > self.MAX_DESCRIPTION_LENGTH:
             raise ValueError(
-                f"Descrizione troppo lunga (max {self.MAX_DESCRIPTION_LENGTH} caratteri). "
+                f"Descrizione troppo lunga (max {self.MAX_DESCRIPTION_LENGTH} caratteri). "  # noqa: E501
                 f"Lunghezza attuale: {len(cleaned)} caratteri."
             )
 
