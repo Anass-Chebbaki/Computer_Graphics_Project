@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+eggs/
+*.egg-info/
+.eggs/
+*.egg
+MANIFEST
+
+# Ambienti virtuali
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Variabili d'ambiente
+.env
+.env.local
+.env.*.local
+
+# Output del progetto
+assets/renders/*.png
+assets/renders/*.jpg
+*.json
+!tests/fixtures/*.json
+!config/**/*.json
+
+# Blender
+*.blend1
+*.blend2
+
+# Docker
+docker/data/
+
+# Ollama (modelli scaricati localmente - troppo grandi)
+*.gguf
+*.bin
+
+# Log
+*.log
+logs/

@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "computer-graphics"
+version = "1.0.0"
+description = "Pipeline automatizzata per la generazione di scene 3D da linguaggio naturale tramite Ollama e Blender"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Your Name", email = "your@email.com" }
+]
+keywords = ["blender", "3d", "nlp", "ollama", "scene-generation", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "pyyaml>=6.0.1",
+    "click>=8.1.7",
+    "rich>=13.7.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.1.9",
+    "black>=23.12.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "responses>=0.25.0",
+]
+
+[project.scripts]
+computer-graphics = "computer_graphics.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/nl2scene3d"
+Documentation = "https://github.com/yourusername/nl2scene3d/docs"
+Repository = "https://github.com/yourusername/nl2scene3d"
+Issues = "https://github.com/yourusername/nl2scene3d/issues"
+Changelog = "https://github.com/yourusername/nl2scene3d/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "C4", "SIM"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=src/nl2scene3d --cov-report=term-missing --cov-report=html"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["src/nl2scene3d"]
+omit = ["tests/*", "scripts/*"]

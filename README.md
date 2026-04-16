@@ -1,4 +1,4 @@
-# NL2Scene3D
+# Computer Graphics Project
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -90,7 +90,7 @@ Tutte le coordinate sono espresse in unitÃ  Blender (1 unitÃ  = 1 metro). Le r
 ## Struttura del repository
 
 ```
-nl2scene3d/
+computer_graphics/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                 # Lint, test e type check su push/PR
@@ -113,7 +113,7 @@ nl2scene3d/
 │   ├── usage.md
 │   └── contributing.md
 ├── src/
-│   └── nl2scene3d/
+│   └── computer_graphics/
 │       ├── __init__.py
 │       ├── input_handler.py       # Fase 1: gestione input utente
 │       ├── prompt_builder.py      # Fase 2: costruzione payload Ollama
@@ -246,8 +246,8 @@ Modelli alternativi supportati (con compromessi velocitÃ /qualitÃ ):
 
 ```bash
 # Clona il repository
-git clone https://github.com/yourusername/nl2scene3d.git
-cd nl2scene3d
+git clone https://github.com/yourusername/Computer_Graphics_Project.git
+cd Computer_Graphics_Project
 
 # Crea e attiva l'ambiente virtuale Python
 python -m venv .venv
@@ -276,7 +276,7 @@ Verifica che l'installazione sia andata a buon fine:
 make test
 
 # Verifica che Ollama sia raggiungibile
-python -c "from nl2scene3d.ollama_client import OllamaClient; print(OllamaClient().health_check())"
+python -c "from computer_graphics.ollama_client import OllamaClient; print(OllamaClient().health_check())"
 ```
 
 ---
@@ -414,8 +414,8 @@ blender --background --python scripts/blender_runner.py \
 ### Utilizzo come libreria Python
 
 ```python
-from nl2scene3d.orchestrator import generate_scene_objects
-from nl2scene3d.ollama_client import OllamaClient
+from computer_graphics.orchestrator import generate_scene_objects
+from computer_graphics.ollama_client import OllamaClient
 
 # Verifica che Ollama sia raggiungibile
 client = OllamaClient()
@@ -588,7 +588,7 @@ pre-commit run --all-files
 
 ### Struttura dei moduli
 
-Ogni modulo corrisponde a una fase precisa della pipeline. I moduli nella directory `src/nl2scene3d/blender/` dipendono da `bpy` e possono essere importati solo all'interno del processo Blender. Non importarli in contesti Python standard: causeranno un `ImportError`.
+Ogni modulo corrisponde a una fase precisa della pipeline. I moduli nella directory `src/computer_graphics/blender/` dipendono da `bpy` e possono essere importati solo all'interno del processo Blender. Non importarli in contesti Python standard: causeranno un `ImportError`.
 
 Il modulo `orchestrator.py` Ã¨ il punto di coordinamento principale. Istanzia i componenti delle fasi 1-4, gestisce la logica di retry e produce la lista finale di `SceneObject` validati. Ãˆ il punto di ingresso raccomandato per l'utilizzo programmatico della pipeline.
 
