@@ -111,3 +111,57 @@ clean: ## Rimuove file temporanei e cache
 	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete 2>/dev/null || true
 	@echo "Pulizia completata."
+
+# ---------------------------------------------------------------------------
+# Asset
+# ---------------------------------------------------------------------------
+generate-primitives: ## Genera asset 3D primitivi con Blender
+	blender --background --python scripts/generate_primitives.py
+
+check-assets: ## Verifica lo stato della libreria di asset
+	$(PYTHON) scripts/setup_assets.py check
+
+asset-report: ## Genera report JSON degli asset
+	$(PYTHON) scripts/setup_assets.py report
+
+# ---------------------------------------------------------------------------
+# CLI diretta (dopo pip install -e .)
+# ---------------------------------------------------------------------------
+cli-check: ## Verifica prerequisiti via CLI
+	computer-graphics check
+
+cli-info: ## Mostra configurazione via CLI
+	computer-graphics info
+
+cli-demo: ## Demo via CLI
+	computer-graphics generate \
+		"una stanza con un tavolo al centro, una sedia davanti, una lampada nell angolo e un divano" \
+		--output $(OUTPUT)
+
+cli-validate: ## Valida il JSON di output corrente
+	computer-graphics validate $(OUTPUT)
+
+# ---------------------------------------------------------------------------
+# Benchmark / Performance
+# ---------------------------------------------------------------------------
+benchmark: ## Esegue il benchmark della pipeline (5 run)
+	@echo "Benchmark pipeline NL2Scene3D (5 esecuzioni)..."
+	@for i in 1 2 3 4 5; do \
+		echo "Run $$i/5:"; \
+		time $(PYTHON) scripts/run_pipeline.py \
+			"una stanza con tavolo e sedia" \
+			--output /tmp/bench_output.json 2>/dev/null || true; \
+	done
+
+# ---------------------------------------------------------------------------
+# Report coverage HTML aperto nel browser
+# ---------------------------------------------------------------------------
+coverage-open: test-cov ## Apre il report coverage nel browser
+	@python -m webbrowser htmlcov/index.html
+
+# ---------------------------------------------------------------------------
+# Documentazione
+# ---------------------------------------------------------------------------
+docs-serve: ## Serve la documentazione localmente (richiede mkdocs)
+	@mkdocs serve 2>/dev/null || \
+		python -m http.server 8080 --directory docs/

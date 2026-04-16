@@ -100,6 +100,11 @@ def generate_scene_objects(
             raw_objects = extract_json(raw_text)
             validated = validate_objects(raw_objects)
 
+            # Applica scene graph anti-collisione
+            from computer_graphics.scene_graph import apply_scene_graph  # noqa: PLC0415
+
+            validated = apply_scene_graph(validated)
+
             if verbose:
                 _print_results_table(validated)
 
