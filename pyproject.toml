@@ -42,12 +42,22 @@ dev = [
     "black>=23.12.0",
     "mypy>=1.8.0",
     "types-requests>=2.31.0",
+    "types-PyYAML>=6.0.0",
     "pre-commit>=3.6.0",
     "responses>=0.25.0",
+    "bandit>=1.7.0",
+    "pip-audit>=2.6.0",
+]
+
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.24.0",
 ]
 
 [project.scripts]
 computer-graphics = "computer_graphics.cli:main"
+nl2scene3d = "computer_graphics.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/nl2scene3d"
