@@ -27,6 +27,7 @@ from computer_graphics.ollama_client import OllamaConnectionError
 from computer_graphics.orchestrator import generate_scene_objects
 
 console = Console()
+err_console = Console(file=sys.stderr, style="red")
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -117,17 +118,16 @@ def main(
         elif interactive:
             handler = InputHandler()
         else:
-            console.print(
+            err_console.print(
                 "[bold red]Errore:[/bold red] Fornire una descrizione, "
                 "usare --interactive o --file.",
-                err=True,
             )
             raise SystemExit(1)
 
         scene_description = handler.get_description()
 
     except (ValueError, FileNotFoundError) as exc:
-        console.print(f"[bold red]Errore input:[/bold red] {exc}", err=True)
+        err_console.print(f"[bold red]Errore input:[/bold red] {exc}")
         raise SystemExit(1) from exc
 
     console.print(
@@ -145,7 +145,7 @@ def main(
         )
     except OllamaConnectionError as exc:
         msg = f"\n[bold red]Errore connessione Ollama:[/bold red] {exc}"
-        console.print(msg, err=True)
+        err_console.print(msg)
         suggestion = (
             "\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
             "[bold]ollama serve[/bold] e scaricare il modello con "
@@ -154,7 +154,7 @@ def main(
         console.print(suggestion)
         raise SystemExit(1) from exc
     except RuntimeError as exc:
-        console.print(f"\n[bold red]Errore pipeline:[/bold red] {exc}", err=True)
+        err_console.print(f"\n[bold red]Errore pipeline:[/bold red] {exc}")
         raise SystemExit(1) from exc
 
     # Salvataggio output JSON

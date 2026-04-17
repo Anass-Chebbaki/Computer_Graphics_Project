@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint format type-check test test-cov \
+.PHONY: help install install-dev lint format type-check test test-cov check-coverage \
         clean docker-build docker-up docker-down ollama-start \
         ollama-pull pipeline demo
 
@@ -53,6 +53,9 @@ test-cov: ## Esegue i test con coverage HTML
 		--cov-report=term-missing \
 		--cov-report=html:htmlcov
 	@echo "Report coverage: htmlcov/index.html"
+
+check-coverage: ## Verifica che il coverage rispetti i threshold (90% globale, 85% per file)
+	$(PYTHON) scripts/check_coverage.py
 
 # ---------------------------------------------------------------------------
 # Ollama

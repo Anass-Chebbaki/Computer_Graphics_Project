@@ -38,13 +38,13 @@ class TestSceneObject:
     def test_string_numerics_coerced(self) -> None:
         obj = SceneObject(
             name="lamp",
-            x="1.5",
-            y="-0.8",
+            x="1.5",  # type: ignore[arg-type]
+            y="-0.8",  # type: ignore[arg-type]
             z="0.0",  # type: ignore[arg-type]
-            rot_x="0.0",
-            rot_y="0.0",
-            rot_z="0.785",
-        )  # type: ignore[arg-type]
+            rot_x="0.0",  # type: ignore[arg-type]
+            rot_y="0.0",  # type: ignore[arg-type]
+            rot_z="0.785",  # type: ignore[arg-type]
+        )
         assert obj.x == pytest.approx(1.5)
         assert obj.rot_z == pytest.approx(0.785)
 

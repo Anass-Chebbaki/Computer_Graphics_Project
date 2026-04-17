@@ -99,6 +99,20 @@ def ollama_url() -> str:
 
 
 @pytest.fixture()
+def mock_scene_object() -> SceneObject:  # type: ignore[name-defined]
+    """Crea un mock SceneObject."""
+    from computer_graphics.validator import SceneObject
+
+    return SceneObject(
+        name="test_obj",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        scale=1.0,
+    )
+
+
+@pytest.fixture()
 def mock_ollama_response() -> dict:
     """Risposta HTTP simulata di Ollama."""
     return {

@@ -1,5 +1,5 @@
 """
-Fase 4 — Parsing e pulizia del JSON restituito dal modello LLM.
+Parsing e pulizia del JSON restituito dal modello LLM.
 
 I modelli linguistici non garantiscono output perfettamente puliti:
 questo modulo gestisce tutti i casi problematici noti.

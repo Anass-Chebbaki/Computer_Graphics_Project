@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![CI](https://github.com/yourusername/Computer_Graphics_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/Computer_Graphics_Project/actions/workflows/ci.yml)
+[![CI](https://github.com/Anass-Chebbaki/Computer_Graphics_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Anass-Chebbaki/Computer_Graphics_Project/actions/workflows/ci.yml)
 
 NL2Scene3D è una pipeline automatizzata che converte descrizioni testuali in linguaggio naturale in scene 3D complete all'interno di Blender. Il sistema utilizza modelli linguistici di grandi dimensioni (LLM) eseguiti localmente tramite Ollama per interpretare la descrizione dell'utente, generare un layout spaziale strutturato in formato JSON e applicarlo programmaticamente a una scena Blender tramite l'API `bpy`.
 
@@ -60,18 +60,31 @@ Descrizione testuale (linguaggio naturale)
       Estrazione robusta del JSON dalla risposta del modello
       (parsing diretto, regex, pulizia aggressiva di markdown e commenti).
       Validazione di ogni oggetto con Pydantic e coercizione dei tipi.
+      ┌─────────────────────────────────────────────────┐
+      │  Supporta oggetti della scena con:              │
+      │  • Gerarchia parent-child per raggruppamenti    │
+      │  • Semantica materiali procedurali (wood, glass │
+      │    fabric, metal, plastic, concrete, ecc.)      │
+      │  • Sorgenti luminose (point, sun, spot, area)   │
+      │    con colori RGB, intensità e angoli spot      │
+      └─────────────────────────────────────────────────┘
           │
           ▼
   [4.5] SceneGraph
       Sistema di layout spaziale intelligente con bounding box AABB.
-      Rileva e risolve automaticamente le collisioni tra oggetti,
-      garantendo un posizionamento fisicamente coerente.
+      Rileva e risolve automaticamente le collisioni tra oggetti
+      tramite iterazioni di aggiustamento delle coordinate.
+      Se le collisioni non sono risolvibili spazialmente,
+      attiva un ciclo agentico: fornisce feedback contestuale al modello
+      per rigenerare le coordinate degli oggetti problematici,
+      mantenendo gli altri oggetti intatti.
           │
           ▼
   [5] SceneBuilder + Renderer (Blender / bpy)
       Pulizia della scena di default, configurazione di luci e camera,
       importazione degli asset 3D, posizionamento secondo le coordinate
-      generate dal modello, render opzionale in PNG.
+      generate dal modello, applicazione di materiali procedurali,
+      render opzionale in PNG.
 ```
 
 Il formato JSON intermedio prodotto dal modello e consumato da Blender segue questo schema:
@@ -86,12 +99,24 @@ Il formato JSON intermedio prodotto dal modello e consumato da Blender segue que
     "rot_x": 0.0,
     "rot_y": 0.0,
     "rot_z": 0.0,
-    "scale": 1.0
+    "scale": 1.0,
+    "parent": null,
+    "material_semantics": "wood"
+  },
+  {
+    "name": "lamp",
+    "x": 2.0,
+    "y": 0.0,
+    "z": 0.0,
+    "scale": 1.0,
+    "light_type": "POINT",
+    "color": [1.0, 1.0, 0.85],
+    "energy": 2000.0
   }
 ]
 ```
 
-Tutte le coordinate sono espresse in unità Blender (1 unità = 1 metro). Le rotazioni sono in radianti nel sistema Euler XYZ.
+Tutte le coordinate sono espresse in unità Blender (1 unità = 1 metro). Le rotazioni sono in radianti nel sistema Euler XYZ. I colori RGB sono normalizzati all'intervallo `[0.0, 1.0]`.
 
 ---
 
@@ -130,11 +155,15 @@ Computer_Graphics_Project/
 │       ├── ollama_client.py       # Fase 3: client HTTP per Ollama
 │       ├── json_parser.py         # Fase 4: parsing robusto del JSON
 │       ├── validator.py           # Fase 4: validazione con Pydantic
-│       ├── scene_graph.py         # Fase 4.5: layout spaziale anti-collisione
-│       ├── orchestrator.py        # Coordinamento delle fasi 1-4.5
+│       │                          #        Supporta SceneObject, LightObject
+│       │                          #        Gerarchia parent-child, materiali
+│       ├── scene_graph.py         # Fase 4.5: layout spaziale e collisioni
+│       ├── orchestrator.py        # Coordinamento con ciclo agentico retry
 │       └── blender/
 │           ├── __init__.py
 │           ├── scene_builder.py   # Fase 5: costruzione scena in Blender
+│           │                      #        Importa asset, applica materiali
+│           │                      #        Configura luci e gerarchia
 │           └── renderer.py        # Configurazione render e output
 ├── scripts/
 │   ├── run_pipeline.py            # Entry point CLI principale
@@ -542,6 +571,113 @@ Per eseguire lo script direttamente dall'editor interno di Blender senza passare
    RENDER_ENABLED: bool = True
    ```
 4. Premere **Run Script**
+
+---
+
+## Oggetti e funzionalità avanzate
+
+### Gerarchia parent-child
+
+Gli oggetti della scena supportano una gerarchia gerarchica tramite il campo `parent`. Questo consente di creare raggruppamenti logici dove le coordinate dei figli sono relative al padre:
+
+```json
+[
+  {
+    "name": "desk",
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "scale": 1.6
+  },
+  {
+    "name": "monitor",
+    "x": 0.3,
+    "y": 0.1,
+    "z": 0.75,
+    "scale": 0.8,
+    "parent": "desk"
+  },
+  {
+    "name": "keyboard",
+    "x": 0.0,
+    "y": 0.3,
+    "z": 0.05,
+    "scale": 1.0,
+    "parent": "desk"
+  }
+]
+```
+
+In Blender, il mondo `SceneBuilder` crea automaticamente vincoli genitore-figlio (`parent_set()`) e applica le trasformazioni relative.
+
+### Sorgenti luminose
+
+Il modello può generare sorgenti luminose oltre ai soli oggetti. Ogni sorgente è rappresentata da un oggetto `LightObject` con:
+
+- **Tipo di luce**: `POINT` (omni-direzionale), `SUN` (direzionale infinita), `SPOT` (cono focalizzato), `AREA` (emissione di superficie)
+- **Colore RGB**: Tripla normalizzata `[0.0, 1.0]` per canale (es. bianco `[1.0, 1.0, 1.0]`, giallo lampato `[1.0, 1.0, 0.8]`)
+- **Intensità**: `energy` in Watt (Cycles render) o unità arbitrarie (EEVEE)
+- **Angolo spot** (solo SPOT): `spot_size` in radianti (~0.785 rad ≈ 45°)
+
+Esempio:
+
+```json
+{
+  "name": "overhead_light",
+  "light_type": "SUN",
+  "x": 0.0,
+  "y": 0.0,
+  "z": 10.0,
+  "color": [1.0, 0.95, 0.8],
+  "energy": 3000.0
+}
+```
+
+### Materiali procedurali
+
+Il campo `material_semantics` permette al modello di specificare il tipo di materiale in modo dichiarativo. `SceneBuilder` applica shader procedurali corrispondenti:
+
+| Semantica | Descrizione | Proprietà | Shader |
+|---|---|---|---|
+| `wood` | Legno | Diffuso marrone, bump, venatura | Procedurale legno |
+| `glass` | Vetro trasparente | IOR 1.45, traslucenza | Glass BSDF |
+| `fabric` | Tessuto morbido | Diffuso satinato, micro-roughness | Diffuse + Coat |
+| `metal` | Metallo lucido | Specular alto, IOR metallico | Metal BSDF |
+| `plastic` | Plastica | Diffuso leggero, specular medio | Diffuse + Glossy |
+| `concrete` | Cemento | Diffuso grigio, roughness alta, pori | Procedurale |
+| `ceramic` | Ceramica | Glittery, specular sottile | Glossy + Diffuse |
+| `leather` | Pelle | Marrone scuro, anisotropic | Anisotropic |
+| `marble` | Marmo | Bianco, venature fini, specular | Procedurale |
+| `rubber` | Gomma | Nero opaco, roughness alta | Matte |
+
+Esempio:
+
+```json
+[
+  {
+    "name": "table",
+    "material_semantics": "wood",
+    "scale": 2.0
+  },
+  {
+    "name": "glass_vase",
+    "material_semantics": "glass",
+    "scale": 0.5
+  }
+]
+```
+
+### Risoluzione automatica delle collisioni
+
+La fase **SceneGraph** rileva automaticamente le sovrapposizioni tra bounding box AABB e applica iterazioni di aggiustamento coordinato per risolverle. Se le collisioni non sono risolvibili spazialmente (troppi oggetti in uno spazio ristretto), viene attivato un **ciclo agentico**:
+
+1. **Rilevamento**: SceneGraph calcola la densità della scena (oggetti / metri quadri)
+2. **Analisi**: Se la densità supera una soglia e rimangono collisioni, identifica la coppia più problematica
+3. **Feedback**: Genera un messaggio con istruzioni esplicite per il modello: *"Aumenta la distanza tra `object_a` e `object_b` di almeno 1.5 metri"*
+4. **Regenerazione**: Reinvia il feedback al modello tramite il ciclo di conversazione, chiedendo di rigenerare le coordinate
+5. **Iterazione**: Ripete fino a 3 tentativi (configurabile con `--retries`)
+
+Questo garantisce che anche scene complesse convergano verso un layout fisicamente valido senza richiedere manuale post-processing dei risultati.
 
 ---
 

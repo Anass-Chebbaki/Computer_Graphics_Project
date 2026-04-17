@@ -10,6 +10,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+try:
+    import bpy
+except ImportError:
+    bpy = None
+
 
 def configure_render(
     output_path: str | Path,
@@ -28,7 +33,8 @@ def configure_render(
         samples: Numero di campioni Cycles (più alto = qualità maggiore, più lento).
         engine: Motore di render ("CYCLES" o "BLENDER_EEVEE").
     """
-    import bpy  # noqa: PLC0415
+    if bpy is None:
+        raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
     scene = bpy.context.scene
     scene.render.engine = engine
@@ -62,7 +68,8 @@ def render_scene(output_path: str | Path) -> Path:
     Returns:
         Path del file PNG generato.
     """
-    import bpy  # noqa: PLC0415
+    if bpy is None:
+        raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)

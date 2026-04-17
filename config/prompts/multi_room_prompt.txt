@@ -6,45 +6,75 @@ Il tuo output deve iniziare esattamente con [ e terminare esattamente con ].
 
 Sei in modalità MULTI-STANZA: puoi generare layout complessi con molti oggetti.
 
-Schema OBBLIGATORIO per ogni oggetto:
-- "name"  : stringa minuscola (es. "table", "chair", "lamp", "sofa")
-- "x"     : float, posizione X in metri (positivo = destra)
-- "y"     : float, posizione Y in metri (positivo = avanti)
-- "z"     : float, posizione Z (0.0 = pavimento)
-- "rot_x" : float in radianti (solitamente 0.0)
-- "rot_y" : float in radianti (solitamente 0.0)
-- "rot_z" : float in radianti (es. 1.5708 = 90°, 3.1416 = 180°)
-- "scale" : float > 0 (1.0 = dimensione reale)
+================================================================================
+SCHEMA OBBLIGATORIO
+================================================================================
 
-Linee guida spaziali per layout realistici:
+Per ogni oggetto DEVI includere esattamente questi campi:
+
+- "name"               : stringa minuscola (es. "table", "chair", "lamp", "sofa")
+- "x"                  : float, posizione X in metri (positivo = destra)
+- "y"                  : float, posizione Y in metri (positivo = avanti)
+- "z"                  : float, posizione Z (0.0 = pavimento)
+- "rot_x"              : float in radianti (solitamente 0.0)
+- "rot_y"              : float in radianti (solitamente 0.0)
+- "rot_z"              : float in radianti (es. 1.5708 = 90°, 3.1416 = 180°)
+- "scale"              : float > 0 (1.0 = dimensione reale)
+- "parent"             : stringa o null — nome dell'oggetto parent nella gerarchia.
+                         Se l'oggetto è figlio di un altro, inserisci il "name"
+                         del parent. Se indipendente, usa null.
+- "material_semantics" : stringa o null — semantica del materiale procedrale.
+                         Valori: "wood", "glass", "fabric", "metal", "plastic",
+                         "concrete", "ceramic", "leather", "marble", "rubber".
+                         Usa null se non specifico.
+
+================================================================================
+LINEE GUIDA PER LAYOUT MULTI-STANZA
+================================================================================
 
 ZONA UFFICIO (intorno a x=0, y=0):
-- scrivania: centro zona, (0.0, 0.0)
-- sedia: davanti scrivania y ≈ -1.0
-- monitor: su scrivania, stessa posizione con z ≈ 0.8
-- lampada: angolo zona, x ≈ ±2.0, y ≈ ±2.0
+- scrivania: centro zona, (0.0, 0.0), material: "wood", parent: null
+- sedia: davanti scrivania y ≈ -1.0, material: "fabric", parent: null
+- monitor: su scrivania, x=0, y=-0.1, z=0.85, parent="desk", material: "plastic"
+- tastiera: su scrivania, x=0, y=0.3, z=0.78, parent="desk", material: "plastic"
+- lampada: angolo zona, x ≈ ±2.0, y ≈ ±2.0, material: "metal", parent: null
 
 ZONA SALOTTO (intorno a x=5, y=0):
-- divano: centro zona, face verso origine (rot_z = 0)
-- tavolino: davanti al divano y ≈ -1.0 dal divano
-- lampada: angolo y ≈ 2.0
+- divano: centro zona, x=5, face verso origine (rot_z = 0), material: "fabric", parent: null
+- tavolino: davanti divano, x=5, y ≈ -1.0, material: "wood", parent: null
+- lampada: angolo, x=7, y ≈ 2.0, material: "metal", parent: null
 
 CAMERA DA LETTO (intorno a x=0, y=5):
-- letto: centro zona
-- comodino: lato letto x ≈ ±1.0
-- armadio: parete y ≈ 3.5 dal centro letto
+- letto: centro zona, x=0, y=5, material: "fabric", parent: null
+- comodino: lato letto, x ≈ ±1.0, y ≈ 5, material: "wood", parent: null
+- armadio: parete, y ≈ 3.5, material: "wood", parent: null
 
-Distanze minime tra oggetti:
-- tavoli/scrivanie: almeno 2.0 m dal centro
-- sedie: almeno 1.5 m dalle pareti
-- lampade: preferibilmente agli angoli
+================================================================================
+VINCOLI SPAZIALI
+================================================================================
 
-Usa rot_z per orientare gli oggetti verso il centro della loro zona.
+- Distanze minime: tavoli/scrivanie almeno 2.0 m dal centro
+- Sedie almeno 1.5 m dalle pareti
+- Lampade preferibilmente agli angoli
+- Oggetti su superfici (parent != null) hanno z = altezza_superficie + offset
+  Esempio: su scrivania h=0.75 → oggetti con z ≈ 0.78-0.85
+- Usa rot_z per orientare gli oggetti verso il centro della loro zona
 
-Esempio corretto per "un ufficio con scrivania e sedia":
+================================================================================
+ESEMPIO CORRETTO MULTI-STANZA
+================================================================================
+
+Richiesta: "ufficio con scrivania, sedia e lampada; salotto con divano"
+
 [
-  {"name": "desk", "x": 0.0, "y": 0.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0},
-  {"name": "chair", "x": 0.0, "y": -1.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0}
+  {"name": "desk", "x": 0.0, "y": 0.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "wood"},
+  {"name": "chair", "x": 0.0, "y": -1.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "fabric"},
+  {"name": "lamp", "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.785, "scale": 1.0, "parent": null, "material_semantics": "metal"},
+  {"name": "sofa", "x": 5.0, "y": 0.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "fabric"}
 ]
 
 Non includere oggetti non menzionati. Non inventare campi extra.

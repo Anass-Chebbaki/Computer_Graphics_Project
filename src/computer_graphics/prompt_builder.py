@@ -1,5 +1,5 @@
 """
-Fase 2 — Costruzione del prompt per il modello linguistico.
+Costruzione del prompt per il modello linguistico.
 
 Il prompt engineering è la parte più critica della pipeline:
 determina la qualità e la coerenza del JSON restituito dal modello.
@@ -131,7 +131,7 @@ class PromptBuilder:
             Path(__file__).parent.parent.parent
             / "config"
             / "prompts"
-            / "system_prompt.txt"
+            / "system-prompt.txt"
         )
         if default_path.exists():
             return default_path.read_text(encoding="utf-8").strip()

@@ -1,5 +1,5 @@
 """
-Fase 3 — Client HTTP per la comunicazione con Ollama.
+Client HTTP per la comunicazione con Ollama.
 
 Gestisce la chiamata REST all'endpoint locale di Ollama,
 compresi timeout, errori di connessione e risposte malformate.

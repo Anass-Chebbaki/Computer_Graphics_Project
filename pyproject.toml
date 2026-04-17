@@ -96,4 +96,19 @@ filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
 source = ["src/computer_graphics"]
-omit = ["tests/*", "scripts/*"]
+omit = ["tests/*", "scripts/*", "*/blender/*", "*/cli.py"]
+
+[tool.coverage.report]
+fail_under = 90
+precision = 2
+skip_covered = false
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+]

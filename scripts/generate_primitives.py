@@ -24,10 +24,16 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 # Setup path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+try:
+    import bpy
+except ImportError:
+    bpy = None
 
 # Definizioni degli asset: nome → (tipo_primitivo, parametri, colore_RGB, scala)
 ASSET_DEFINITIONS: dict[str, dict] = {
@@ -98,9 +104,7 @@ ASSET_DEFINITIONS: dict[str, dict] = {
 }
 
 
-def _create_material(
-    bpy: object, name: str, color: tuple[float, float, float]
-) -> object:
+def _create_material(bpy: Any, name: str, color: tuple[float, float, float]) -> Any:
     """Crea un materiale Principled BSDF con il colore specificato."""
     mat = bpy.data.materials.new(name=name)  # type: ignore[attr-defined]
     mat.use_nodes = True
@@ -111,11 +115,11 @@ def _create_material(
 
 
 def _add_box(
-    bpy: object,
+    bpy: Any,
     location: tuple,
     size: tuple[float, float, float],
     name: str,
-) -> object:
+) -> Any:
     """Aggiunge un cubo scalato nella posizione specificata."""
     bpy.ops.mesh.primitive_cube_add(location=location)  # type: ignore[attr-defined]
     obj = bpy.context.object  # type: ignore[attr-defined]
@@ -125,7 +129,7 @@ def _add_box(
     return obj
 
 
-def _build_table(bpy: object) -> list:
+def _build_table(bpy: Any) -> list[Any]:
     """Costruisce un tavolo composito: piano + 4 gambe."""
     objects = []
     # Piano del tavolo
@@ -144,7 +148,7 @@ def _build_table(bpy: object) -> list:
     return objects
 
 
-def _build_chair(bpy: object) -> list:
+def _build_chair(bpy: Any) -> list[Any]:
     """Costruisce una sedia composita: sedile + schienale + 4 gambe."""
     objects = []
     # Sedile
@@ -166,7 +170,7 @@ def _build_chair(bpy: object) -> list:
     return objects
 
 
-def _build_lamp(bpy: object) -> list:
+def _build_lamp(bpy: Any) -> list[Any]:
     """Costruisce una lampada da terra: base + asta + paralume."""
     objects = []
     # Base
@@ -193,7 +197,7 @@ def _build_lamp(bpy: object) -> list:
     return objects
 
 
-def _build_sofa(bpy: object) -> list:
+def _build_sofa(bpy: Any) -> list[Any]:
     """Costruisce un divano composito."""
     objects = []
     # Seduta
@@ -209,7 +213,7 @@ def _build_sofa(bpy: object) -> list:
     return objects
 
 
-def _build_bookshelf(bpy: object) -> list:
+def _build_bookshelf(bpy: Any) -> list[Any]:
     """Costruisce una libreria con 4 ripiani."""
     objects = []
     # Struttura esterna
@@ -222,7 +226,7 @@ def _build_bookshelf(bpy: object) -> list:
     return objects
 
 
-def _build_monitor(bpy: object) -> list:
+def _build_monitor(bpy: Any) -> list[Any]:
     """Costruisce un monitor da scrivania."""
     objects = []
     # Schermo
@@ -237,7 +241,7 @@ def _build_monitor(bpy: object) -> list:
     return objects
 
 
-def _build_plant(bpy: object) -> list:
+def _build_plant(bpy: Any) -> list[Any]:
     """Costruisce una pianta in vaso."""
     objects = []
     # Vaso (cono troncato)
@@ -257,7 +261,7 @@ def _build_plant(bpy: object) -> list:
     return objects
 
 
-def _build_bed(bpy: object) -> list:
+def _build_bed(bpy: Any) -> list[Any]:
     """Costruisce un letto matrimoniale."""
     objects = []
     # Base/struttura
@@ -295,9 +299,7 @@ def generate_all_primitives(output_dir: str | Path | None = None) -> dict[str, b
     Returns:
         Dizionario {nome_asset: successo}.
     """
-    try:
-        import bpy  # noqa: PLC0415
-    except ImportError:
+    if bpy is None:
         print(  # noqa: T201
             "ERRORE: bpy non disponibile. Eseguire dentro Blender:\n"
             "  blender --background --python scripts/generate_primitives.py"

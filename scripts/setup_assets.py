@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -147,7 +148,7 @@ def report(assets_dir: str, output: str) -> None:
     found = find_assets(assets_path)
     supported = set(OBJECT_DIMENSIONS.keys())
 
-    report_data = {
+    report_data: dict[str, Any] = {
         "assets_dir": str(assets_path.resolve()),
         "supported_count": len(supported),
         "present_count": len(set(found.keys()) & supported),

@@ -2,13 +2,22 @@ Certo! Ecco il layout JSON per la scena richiesta:
 
 ```json
 [
-  // tavolo principale al centro
-  {"name": "table", "x": 0.0, "y": 0.0, "z": 0.0,
-   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0},
-  {"name": "chair", "x": "0.0", "y": "-1.2", "z": "0.0",
-   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0},
+  // scrivania principale al centro
+  {"name": "desk", "x": 0.0, "y": 0.0, "z": 0.0,
+   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0,
+   "parent": null, "material_semantics": "wood"},
+  // monitor su scrivania
+  {"name": "monitor", "x": "0.0", "y": "-0.1", "z": "0.85",
+   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0,
+   "parent": "desk", "material_semantics": "plastic"},
+  // sedia davanti scrivania
+  {"name": "chair", "x": 0.0, "y": -1.2, "z": 0.0,
+   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0, "scale": 1.0,
+   "parent": null, "material_semantics": "fabric"},
+  // lampada in angolo
   {"name": "lamp", "x": -2.0, "y": -2.0, "z": 0.0,
-   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785,},
+   "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785,
+   "parent": null, "material_semantics": "metal"},
 ]
 ```
 

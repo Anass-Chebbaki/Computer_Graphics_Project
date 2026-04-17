@@ -1,8 +1,7 @@
 """
-Fase 1 — Gestione dell'input utente.
+Gestione dell'input utente.
 
-Raccoglie e normalizza la descrizione testuale della scena
-prima di passarla alla fase di prompt engineering.
+Raccoglie e normalizza la descrizione testuale della scena.
 """
 
 from __future__ import annotations

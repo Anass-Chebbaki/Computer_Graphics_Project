@@ -1,13 +1,27 @@
 [
   {
-    "name": "table",
+    "name": "desk",
     "x": 0.0,
     "y": 0.0,
     "z": 0.0,
     "rot_x": 0.0,
     "rot_y": 0.0,
     "rot_z": 0.0,
-    "scale": 1.0
+    "scale": 1.0,
+    "parent": null,
+    "material_semantics": "wood"
+  },
+  {
+    "name": "monitor",
+    "x": 0.0,
+    "y": -0.1,
+    "z": 0.85,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0,
+    "scale": 1.0,
+    "parent": "desk",
+    "material_semantics": "plastic"
   },
   {
     "name": "chair",
@@ -17,7 +31,9 @@
     "rot_x": 0.0,
     "rot_y": 0.0,
     "rot_z": 0.0,
-    "scale": 1.0
+    "scale": 1.0,
+    "parent": null,
+    "material_semantics": "fabric"
   },
   {
     "name": "lamp",
@@ -27,16 +43,8 @@
     "rot_x": 0.0,
     "rot_y": 0.0,
     "rot_z": 0.785,
-    "scale": 1.0
-  },
-  {
-    "name": "sofa",
-    "x": 0.0,
-    "y": 2.5,
-    "z": 0.0,
-    "rot_x": 0.0,
-    "rot_y": 0.0,
-    "rot_z": 3.1416,
-    "scale": 1.0
+    "scale": 1.0,
+    "parent": null,
+    "material_semantics": "metal"
   }
 ]

@@ -5,30 +5,114 @@ Non aggiungere MAI testo, spiegazioni, commenti, markdown o backtick prima o dop
 Non usare commenti JavaScript (//) all'interno del JSON.
 Il tuo output deve iniziare esattamente con [ e terminare esattamente con ].
 
-Ogni elemento dell'array rappresenta un oggetto 3D e deve contenere ESATTAMENTE questi campi:
-- "name"  : stringa, nome dell'oggetto in inglese minuscolo (es. "table", "chair", "lamp")
-- "x"     : numero float, posizione sull'asse X in unità Blender (1 unità = 1 metro)
-- "y"     : numero float, posizione sull'asse Y in unità Blender
-- "z"     : numero float, posizione sull'asse Z (0.0 = sul pavimento)
-- "rot_x" : numero float, rotazione attorno all'asse X in radianti
-- "rot_y" : numero float, rotazione attorno all'asse Y in radianti
-- "rot_z" : numero float, rotazione attorno all'asse Z in radianti
-- "scale" : numero float, scala uniforme dell'oggetto (1.0 = dimensione normale)
+================================================================================
+SCHEMA OBBLIGATORIO
+================================================================================
 
-Vincoli spaziali da rispettare:
-- Disponi gli oggetti realisticamente, senza sovrapposizioni.
-- Il tavolo/scrivania è tipicamente al centro della scena (0.0, 0.0, 0.0).
-- Una sedia davanti al tavolo: y circa -1.2.
-- Una lampada in angolo: x circa ±2.0, y circa ±2.0.
-- Usa rot_z per orientare gli oggetti verso il centro (0.785 rad = 45°, 1.571 rad = 90°).
-- Tutti i campi di rotazione sono 0.0 se l'oggetto non richiede orientamento specifico.
+Ogni elemento dell'array rappresenta un oggetto 3D e deve contenere
+ESATTAMENTE questi campi:
 
-Esempio di output CORRETTO per "un tavolo con sedia e lampada":
+- "name"               : stringa, nome dell'oggetto in inglese minuscolo
+                         (es. "table", "chair", "lamp", "monitor", "keyboard")
+- "x"                  : numero float, posizione sull'asse X in unità Blender
+                         (1 unità = 1 metro)
+- "y"                  : numero float, posizione sull'asse Y in unità Blender
+- "z"                  : numero float, posizione sull'asse Z
+                         (0.0 = sul pavimento; oggetti su superfici hanno z > 0)
+- "rot_x"              : numero float, rotazione attorno all'asse X in radianti
+- "rot_y"              : numero float, rotazione attorno all'asse Y in radianti
+- "rot_z"              : numero float, rotazione attorno all'asse Z in radianti
+- "scale"              : numero float, scala uniforme (1.0 = dimensione normale)
+- "parent"             : stringa o null — nome dell'oggetto parent nella gerarchia.
+                         Se l'oggetto è figlio di un altro, inserisci il "name"
+                         del parent. Se è indipendente, usa null.
+- "material_semantics" : stringa o null — semantica del materiale per shader
+                         procedurali. Valori ammessi:
+                         "wood", "glass", "fabric", "metal", "plastic",
+                         "concrete", "ceramic", "leather", "marble", "rubber".
+                         Usa null se non si applica un materiale specifico.
+
+================================================================================
+REGOLE DI GERARCHIA PARENT-CHILD (campo "parent")
+================================================================================
+
+Il campo "parent" definisce la gerarchia degli oggetti nella scena.
+Le coordinate x, y, z di un oggetto figlio sono RELATIVE all'origine del parent.
+
+Linee guida obbligatorie:
+- Un MONITOR posizionato su una scrivania ha "parent": "desk".
+  Le sue coordinate sono relative al centro della scrivania.
+  Esempio: "x": 0.0, "y": 0.0, "z": 0.85 significa "sul piano della scrivania".
+- Una TASTIERA su una scrivania ha "parent": "desk".
+  Esempio: "x": 0.0, "y": 0.2, "z": 0.78
+- Un LIBRO su una mensola ha "parent": "bookshelf".
+- Una LAMPADA DA TAVOLO ha "parent": "table" o "parent": "desk".
+- Una TAZZA o OGGETTO PICCOLO su un tavolo ha "parent": "table".
+- Oggetti indipendenti (tavoli, sedie, divani, lampade da terra)
+  hanno "parent": null e coordinate assolute nella scena.
+
+Esempio di layout scrivania con gerarchia:
 [
-  {"name": "table",  "x": 0.0,  "y": 0.0,  "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},
-  {"name": "chair",  "x": 0.0,  "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},
-  {"name": "lamp",   "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785, "scale": 1.0}
+  {"name": "desk", "x": 0.0, "y": 0.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "wood"},
+  {"name": "monitor", "x": 0.0, "y": -0.1, "z": 0.85, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": "desk", "material_semantics": "plastic"},
+  {"name": "keyboard", "x": 0.0, "y": 0.25, "z": 0.78, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": "desk", "material_semantics": "plastic"},
+  {"name": "chair", "x": 0.0, "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "fabric"}
+]
+
+================================================================================
+VINCOLI SPAZIALI
+================================================================================
+
+- Posiziona gli oggetti realisticamente, evitando sovrapposizioni.
+- Il tavolo/scrivania principale è tipicamente al centro (0.0, 0.0, 0.0).
+- Una sedia davanti al tavolo: y circa -1.2 (coordinate assolute, parent: null).
+- Una lampada da terra in angolo: x ≈ ±2.0, y ≈ ±2.0 (parent: null).
+- Usa rot_z per orientare gli oggetti verso il centro della scena.
+  (0.785 rad = 45°, 1.571 rad = 90°, 3.14159 rad = 180°)
+- Tutti i campi di rotazione sono 0.0 se l'oggetto non richiede orientamento.
+- Oggetti su superfici (parent != null) hanno z = altezza_surface + offset.
+  Esempio: oggetti su scrivania alta 0.75 m → z ≈ 0.75–0.85.
+
+================================================================================
+REGOLE SUI MATERIALI (campo "material_semantics")
+================================================================================
+
+Assegna "material_semantics" in modo semanticamente coerente:
+- Tavoli e scrivanie in legno           → "wood"
+- Vetrine, finestre, contenitori trasparenti → "glass"
+- Divani, sedie imbottite, tappeti      → "fabric"
+- Strutture metalliche, lampade metalliche → "metal"
+- Monitor, case computer, oggetti tecnologici → "plastic"
+- Muri, pavimenti, superfici neutre     → "concrete"
+- Sanitari, stoviglie                   → "ceramic"
+- Sedie in pelle, divani in pelle       → "leather"
+- Superfici marmoree, banconi           → "marble"
+- Pneumatici, impugnature, tappetini   → "rubber"
+- Se il materiale è ambiguo o non rilevante → null
+
+================================================================================
+ESEMPIO DI OUTPUT CORRETTO
+================================================================================
+
+Richiesta: "un ufficio con scrivania, monitor, tastiera, sedia e lampada"
+
+[
+  {"name": "desk", "x": 0.0, "y": 0.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "wood"},
+  {"name": "monitor", "x": 0.0, "y": -0.1, "z": 0.85, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": "desk", "material_semantics": "plastic"},
+  {"name": "keyboard", "x": 0.0, "y": 0.3, "z": 0.78, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": "desk", "material_semantics": "plastic"},
+  {"name": "chair", "x": 0.0, "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.0, "scale": 1.0, "parent": null, "material_semantics": "fabric"},
+  {"name": "lamp", "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0,
+   "rot_z": 0.785, "scale": 1.0, "parent": null, "material_semantics": "metal"}
 ]
 
 Non includere oggetti non menzionati dall'utente.
-Non inventare campi aggiuntivi non previsti dallo schema sopra.
+Non inventare campi aggiuntivi non presenti nello schema.
+Non usare MAI commenti (//) all'interno del JSON.
