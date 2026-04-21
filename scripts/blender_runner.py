@@ -57,7 +57,9 @@ def parse_blender_args() -> tuple[str, str | None]:
     if "--render" in args:
         render_idx = args.index("--render")
         if render_idx + 1 < len(args):
-            render_out = args[render_idx + 1]
+            render_out = str(
+                (PROJECT_ROOT / args[render_idx + 1]).resolve()
+            )
 
     if "--no-render" in args:
         render_out = None
