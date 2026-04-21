@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import site
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ RENDER_ENABLED: bool = True
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 # Aggiunge le librerie installate dall'utente (rich, pydantic, ecc.)
-import site
+
 sys.path.insert(0, site.getusersitepackages())
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
