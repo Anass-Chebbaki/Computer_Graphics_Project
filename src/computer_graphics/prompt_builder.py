@@ -64,7 +64,7 @@ class PromptBuilder:
 
     def __init__(
         self,
-        model: str = "llama3",
+        model: str | None = None,
         system_prompt: str | None = None,
         system_prompt_file: str | Path | None = None,
     ) -> None:

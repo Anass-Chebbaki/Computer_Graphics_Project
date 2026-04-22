@@ -164,9 +164,9 @@ def _apply_scene_graph_with_collision_check(
 
 def generate_scene_objects(
     scene_description: str,
-    model: str = "llama3",
+    model: str | None = None,
     max_retries: int = 3,
-    ollama_url: str = "http://localhost:11434",
+    ollama_url: str | None = None,
     timeout: int = 180,
     verbose: bool = True,
 ) -> list[SceneObject]:
@@ -180,9 +180,9 @@ def generate_scene_objects(
 
     Args:
         scene_description: Testo descrittivo della scena in linguaggio naturale.
-        model: Nome del modello Ollama da usare.
+        model: Nome del modello Ollama da usare. Se None, usa il default da config.
         max_retries: Numero massimo di tentativi totali.
-        ollama_url: URL del server Ollama.
+        ollama_url: URL del server Ollama. Se None, usa il default da config.
         timeout: Secondi di timeout per la chiamata HTTP.
         verbose: Se True, stampa progress e risultati a terminale.
 
@@ -196,7 +196,11 @@ def generate_scene_objects(
     """
     from computer_graphics.config_loader import ConfigLoader
 
+    # Carica configurazione
     ollama_cfg = ConfigLoader.get("ollama", default={})
+    model = model or ollama_cfg.get("model")
+    ollama_url = ollama_url or ollama_cfg.get("url")
+
     max_conn_retries = ollama_cfg.get("max_connection_retries", 3)
     conn_retry_delay = ollama_cfg.get("retry_delay", 2.0)
 

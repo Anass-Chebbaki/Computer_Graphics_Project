@@ -3,7 +3,7 @@
 
 ollama:
   url: "http://localhost:11434"
-  model: "llama3"
+  model: null
   timeout: 180
   max_connection_retries: 3
   retry_delay: 2.0

@@ -57,6 +57,53 @@ def _print_banner() -> None:
     console.print(BANNER)
 
 
+def _select_model_interactively(ollama_url: str) -> str:
+    """Permette all'utente di scegliere un modello Ollama da una lista."""
+    from computer_graphics.ollama_client import OllamaClient  # noqa: PLC0415
+
+    client = OllamaClient(base_url=ollama_url)
+    try:
+        with console.status(
+            "[bold yellow]Recupero modelli disponibili...[/bold yellow]"
+        ):
+            models = client.list_models()
+    except Exception as exc:
+        console_err.print(
+            f"[bold red]Errore nel recupero dei modelli:[/bold red] {exc}"
+        )
+        raise RuntimeError(
+            f"Impossibile recuperare i modelli da Ollama: {exc}"
+        ) from exc
+
+    if not models:
+        console_err.print(
+            "[bold yellow]Nessun modello trovato in Ollama.[/bold yellow]"
+        )
+        raise RuntimeError(
+            "Nessun modello trovato in Ollama. Eseguire 'ollama pull <model>' prima."
+        )
+
+    # Pulisce i nomi (alcuni hanno :latest, altri no)
+    unique_models = sorted({m.split(":")[0] for m in models})
+
+    console.print("\n[bold cyan]Modelli disponibili in Ollama:[/bold cyan]")
+    for i, name in enumerate(unique_models, 1):
+        console.print(f"  {i}. [green]{name}[/green]")
+
+    choice = click.prompt(
+        "\nSeleziona un modello (numero o nome)",
+        default="1",
+        type=str,
+    )
+
+    if str(choice).isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(unique_models):
+            return unique_models[idx]
+
+    return str(choice) if choice in unique_models else unique_models[0]
+
+
 @click.group(invoke_without_command=True)
 @click.version_option(version="1.0.0", prog_name="NL2Scene3D")
 @click.pass_context
@@ -186,11 +233,24 @@ def generate(  # noqa: PLR0913
 
     # Carica configurazione
     cfg = ConfigLoader.load()
-    effective_model = model or cfg.get("ollama", {}).get("model", "llama3")
-    effective_url = ollama_url or cfg.get("ollama", {}).get(
-        "url", "http://localhost:11434"
-    )
-    effective_retries = retries or cfg.get("pipeline", {}).get("max_retries", 3)
+    effective_url = ollama_url or cfg.get("ollama", {}).get("url")
+
+    # Selezione del modello: CLI > ENV/Config > Interattiva
+    if model:
+        effective_model = model
+    else:
+        # Se non specificato in CLI, prova a prenderlo dalla config/env
+        config_model = cfg.get("ollama", {}).get("model")
+        if config_model:
+            effective_model = config_model
+        elif not sys.stdin.isatty():
+            # In contesti non interattivi (es. CI), usa llama3 come fallback
+            effective_model = "llama3"
+        else:
+            # Chiedi all'utente
+            effective_model = _select_model_interactively(effective_url)
+
+    effective_retries = retries or cfg.get("pipeline", {}).get("max_retries") or 3
 
     # Validazione opzioni
     if (export_glb or export_usdz) and not blender:
@@ -220,13 +280,15 @@ def generate(  # noqa: PLR0913
         )
     )
 
-    # Raccolta input
+    # Raccolta input (Auto-interactive se mancano argomenti)
     try:
         if file:
             handler = InputHandler.from_file(file)
         elif description:
             handler = InputHandler.from_string(description)
-        elif interactive:
+        elif interactive or sys.stdin.isatty():
+            # Entra in modalità interattiva se richiesto o se siamo
+            # in un terminale senza input
             handler = InputHandler()
         else:
             console_err.print(
@@ -334,7 +396,7 @@ def generate(  # noqa: PLR0913
             f"\n[bold yellow]Lancio Blender...[/bold yellow]\n"
             f"[dim]{' '.join(cmd)}[/dim]"
         )
-        result = subprocess.run(cmd, check=False)  # noqa: S603
+        result = subprocess.run(cmd, check=False)  # nosec B603
         if result.returncode != 0:
             console_err.print(
                 "[bold red]Blender ha terminato con errori.[/bold red]",
@@ -438,7 +500,7 @@ def check() -> None:
     if blender_ok:
         try:
             result = subprocess.run(
-                ["blender", "--version"],  # noqa: S603, S607
+                ["blender", "--version"],  # nosec B603 B607
                 capture_output=True,
                 text=True,
                 timeout=5,

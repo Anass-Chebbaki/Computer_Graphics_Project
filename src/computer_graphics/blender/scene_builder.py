@@ -99,7 +99,7 @@ def _setup_lights_from_llm(lights: list[Any]) -> None:
 
         # Colore ed energia
         color_raw = data.get("color", (1.0, 1.0, 1.0))
-        if isinstance(color_raw, (list, tuple)) and len(color_raw) == 3:
+        if isinstance(color_raw, list | tuple) and len(color_raw) == 3:
             bl_light.data.color = (
                 float(color_raw[0]),
                 float(color_raw[1]),
@@ -213,7 +213,7 @@ def _get_scene_center(
                 all_x.append(world_co.x)
                 all_y.append(world_co.y)
                 all_z.append(world_co.z)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 # nosec B110
             pass
 
     if not all_x:
@@ -265,7 +265,7 @@ def _compute_optimal_camera_location(
                 all_x.append(obj.location.x)  # type: ignore[attr-defined]
                 all_y.append(obj.location.y)  # type: ignore[attr-defined]
                 all_z.append(obj.location.z)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 # nosec B110
             pass
 
     if not all_x:
@@ -1218,7 +1218,7 @@ def populate_scene(
         # type: ignore[attr-defined]
         color_override_val = data.get("color_override")
         color_override_tuple: tuple[float, float, float] | None = None
-        if color_override_val and isinstance(color_override_val, (list, tuple)):
+        if color_override_val and isinstance(color_override_val, list | tuple):
             color_override_tuple = (
                 float(color_override_val[0]),
                 float(color_override_val[1]),

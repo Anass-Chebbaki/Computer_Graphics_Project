@@ -36,7 +36,7 @@ _ENV_MAPPING: dict[str, tuple[str, str]] = {
 _DEFAULT_CONFIG: dict[str, Any] = {
     "ollama": {
         "url": "http://localhost:11434",
-        "model": "llama3",
+        "model": None,
         "timeout": 180,
         "max_connection_retries": 3,
         "retry_delay": 2.0,

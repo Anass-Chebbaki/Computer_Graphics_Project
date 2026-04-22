@@ -150,7 +150,7 @@ class OllamaClient(BaseLLMClient):
         try:
             response = requests.get(
                 self.base_url + self.TAGS_ENDPOINT,
-                timeout=min(30, self.timeout),
+                timeout=30,
             )
             return bool(response.status_code == 200)
         except RequestException:

@@ -18,7 +18,11 @@ echo ""
 
 # Configurazione
 OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3}"
+if [ -z "$OLLAMA_MODEL" ]; then
+    echo -e "${RED}ERRORE: Variabile OLLAMA_MODEL non definita.${NC}"
+    echo "Fornire il nome del modello tramite la variabile d'ambiente OLLAMA_MODEL."
+    exit 1
+fi
 MAX_RETRIES="${MAX_RETRIES:-3}"
 OUTPUT_FILE="${OUTPUT_FILE:-/app/output/scene_objects.json}"
 MAX_WAIT_SECONDS=120

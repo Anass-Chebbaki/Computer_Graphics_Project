@@ -22,9 +22,9 @@ from rich.logging import RichHandler
 # Aggiunge src al path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from computer_graphics.input_handler import InputHandler
-from computer_graphics.ollama_client import OllamaConnectionError
-from computer_graphics.orchestrator import generate_scene_objects
+from computer_graphics.input_handler import InputHandler  # noqa: E402
+from computer_graphics.ollama_client import OllamaConnectionError  # noqa: E402
+from computer_graphics.orchestrator import generate_scene_objects  # noqa: E402
 
 console = Console()
 err_console = Console(file=sys.stderr, style="red")
@@ -37,6 +37,39 @@ def _setup_logging(verbose: bool) -> None:
         format="%(message)s",
         handlers=[RichHandler(console=console, rich_tracebacks=True)],
     )
+
+
+def _select_model_interactively(ollama_url: str) -> str:
+    """Permette all'utente di scegliere un modello Ollama da una lista."""
+    from computer_graphics.ollama_client import OllamaClient  # noqa: PLC0415
+
+    client = OllamaClient(base_url=ollama_url)
+    try:
+        models = client.list_models()
+    except Exception as exc:
+        raise RuntimeError("Impossibile recuperare i modelli da Ollama.") from exc
+
+    if not models:
+        raise RuntimeError("Nessun modello trovato in Ollama.")
+
+    unique_models = sorted({m.split(":")[0] for m in models})
+
+    console.print("\n[bold cyan]Modelli disponibili in Ollama:[/bold cyan]")
+    for i, name in enumerate(unique_models, 1):
+        console.print(f"  {i}. [green]{name}[/green]")
+
+    choice = click.prompt(
+        "\nSeleziona un modello (numero o nome)",
+        default="1",
+        type=str,
+    )
+
+    if str(choice).isdigit():
+        idx = int(choice) - 1
+        if 0 <= idx < len(unique_models):
+            return unique_models[idx]
+
+    return str(choice) if choice in unique_models else unique_models[0]
 
 
 @click.command()
@@ -56,7 +89,7 @@ def _setup_logging(verbose: bool) -> None:
 @click.option(
     "--model",
     "-m",
-    default="llama3",
+    default=None,
     show_default=True,
     help="Nome del modello Ollama da usare.",
 )
@@ -109,13 +142,27 @@ def main(
     """
     _setup_logging(verbose)
 
-    # Raccolta input
+    # Selezione modello: CLI > ENV/Config > Interattiva
+    if not model:
+        from computer_graphics.config_loader import ConfigLoader
+
+        model = ConfigLoader.get("ollama", "model")
+
+        if not model:
+            if sys.stdin.isatty():
+                model = _select_model_interactively(ollama_url)
+            else:
+                raise RuntimeError(
+                    "Modello non specificato e nessun modello trovato in Ollama."
+                )
+
+    # Raccolta input (Auto-interactive se mancano argomenti)
     try:
         if file:
             handler = InputHandler.from_file(file)
         elif description:
             handler = InputHandler.from_string(description)
-        elif interactive:
+        elif interactive or sys.stdin.isatty():
             handler = InputHandler()
         else:
             err_console.print(
@@ -149,7 +196,7 @@ def main(
         suggestion = (
             "\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
             "[bold]ollama serve[/bold] e scaricare il modello con "
-            "[bold]ollama pull llama3[/bold]."
+            "[bold]ollama pull <model_name>[/bold]."
         )
         console.print(suggestion)
         raise SystemExit(1) from exc

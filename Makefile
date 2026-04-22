@@ -9,8 +9,11 @@ RUFF   := ruff
 BLACK  := black
 MYPY   := mypy
 
-MODEL  ?= llama3
+MODEL  ?=
 OUTPUT ?= scene_objects.json
+
+# Utility per passare il modello solo se definito
+MODEL_ARG = $(if $(MODEL),--model $(MODEL),)
 
 # ---------------------------------------------------------------------------
 # Aiuto
@@ -64,7 +67,7 @@ ollama-start: ## Avvia il server Ollama in background
 	ollama serve &
 	@echo "Server Ollama avviato su http://localhost:11434"
 
-ollama-pull: ## Scarica il modello llama3
+ollama-pull: ## Scarica il modello specificato in MODEL
 	ollama pull $(MODEL)
 
 ollama-status: ## Verifica lo stato del server Ollama
@@ -74,12 +77,12 @@ ollama-status: ## Verifica lo stato del server Ollama
 # Pipeline
 # ---------------------------------------------------------------------------
 pipeline: ## Esegue la pipeline con descrizione interattiva
-	$(PYTHON) scripts/run_pipeline.py --interactive --model $(MODEL) --output $(OUTPUT)
+	$(PYTHON) scripts/run_pipeline.py --interactive $(MODEL_ARG) --output $(OUTPUT)
 
 demo: ## Demo rapida con descrizione hardcoded
 	$(PYTHON) scripts/run_pipeline.py \
 		"una stanza con un tavolo al centro, una sedia davanti al tavolo e una lampada nell angolo" \
-		--model $(MODEL) \
+		$(MODEL_ARG) \
 		--output $(OUTPUT)
 
 blender-run: ## Avvia Blender con lo script di costruzione scena

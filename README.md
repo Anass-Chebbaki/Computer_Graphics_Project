@@ -1,4 +1,3 @@
-
 # NL2Scene3D — Natural Language to 3D Scene Generator
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -7,87 +6,89 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![CI](https://github.com/Anass-Chebbaki/Computer_Graphics_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Anass-Chebbaki/Computer_Graphics_Project/actions/workflows/ci.yml)
 
-NL2Scene3D è una pipeline automatizzata che converte descrizioni testuali in linguaggio naturale in scene 3D complete all'interno di Blender. Il sistema utilizza modelli linguistici di grandi dimensioni (LLM) eseguiti localmente tramite Ollama per interpretare la descrizione dell'utente, generare un layout spaziale strutturato in formato JSON e applicarlo programmaticamente a una scena Blender tramite l'API `bpy`.
+NL2Scene3D is an automated pipeline that converts natural language text descriptions into complete 3D scenes inside Blender. The system uses large language models (LLMs) running locally via Ollama to interpret the user's description, generate a structured spatial layout in JSON format, and apply it programmatically to a Blender scene via the `bpy` API.
 
-Il progetto è progettato per funzionare interamente in locale, senza dipendenze da servizi cloud o API esterne a pagamento.
+The project is designed to run entirely offline, with no dependencies on cloud services or paid external APIs.
 
 ---
 
-## Indice
+## Table of Contents
 
-- [Architettura della pipeline](#architettura-della-pipeline)
-- [Struttura del repository](#struttura-del-repository)
-- [Requisiti](#requisiti)
-- [Installazione](#installazione)
-- [Configurazione](#configurazione)
-- [Utilizzo](#utilizzo)
-- [Riferimento CLI](#riferimento-cli)
-- [Funzionalità avanzate](#funzionalità-avanzate)
-- [Asset 3D](#asset-3d)
-- [Sviluppo](#sviluppo)
-- [Test](#test)
+- [Pipeline Architecture](#pipeline-architecture)
+- [Repository Structure](#repository-structure)
+- [System Requirements](#system-requirements)
+- [Quick Start Guide](#quick-start-guide)
+- [Dependencies](#dependencies)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [CLI Reference](#cli-reference)
+- [Advanced Features](#advanced-features)
+- [3D Assets](#3d-assets)
+- [Development](#development)
+- [Testing](#testing)
 - [Docker](#docker)
 - [CI/CD](#cicd)
-- [Risoluzione dei problemi](#risoluzione-dei-problemi)
-- [Licenza](#licenza)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
-## Architettura della pipeline
+## Pipeline Architecture
 
-La pipeline è composta da sei fasi sequenziali, ciascuna implementata in un modulo dedicato:
+The pipeline consists of six sequential stages, each implemented in a dedicated module:
 
 ```
-Descrizione testuale (linguaggio naturale)
+Natural language text description
           │
           ▼
   [1] InputHandler
-      Normalizzazione e validazione del testo di input.
-      Supporta input da stringa, terminale interattivo o file .txt.
+      Normalization and validation of the input text.
+      Supports input from a string, interactive terminal, or .txt file.
           │
           ▼
   [2] PromptBuilder
-      Costruzione del prompt di sistema e del payload per Ollama.
-      Il prompt vincola il modello a rispondere esclusivamente
-      con un array JSON strutturato secondo uno schema fisso.
+      Construction of the system prompt and Ollama payload.
+      The prompt constrains the model to respond exclusively
+      with a structured JSON array conforming to a fixed schema.
           │
           ▼
   [3] OllamaClient
-      Chiamata HTTP POST all'endpoint /api/chat del server Ollama locale.
-      Gestisce timeout, retry su errori di rete e health check preliminare.
+      HTTP POST request to the /api/chat endpoint of the local Ollama server.
+      Handles timeouts, network-error retries, and preliminary health checks.
           │
           ▼
   [4] JSONParser + Validator
-      Estrazione del JSON dalla risposta del modello tramite bilanciamento delle parentesi.
-      Validazione di ogni oggetto con Pydantic e coercizione dei tipi.
+      JSON extraction from the model response via bracket balancing.
+      Per-object validation with Pydantic and type coercion.
       ┌─────────────────────────────────────────────────┐
-      │  Supporta oggetti della scena con:              │
-      │  • Gerarchia parent-child per raggruppamenti    │
-      │  • Semantica materiali procedurali (wood, glass │
-      │    fabric, metal, plastic, concrete, ecc.)      │
-      │  • Sorgenti luminose (point, sun, spot, area)   │
-      │    con colori RGB, intensità e angoli spot      │
+      │  Scene objects support:                         │
+      │  • Parent-child hierarchy for groupings         │
+      │  • Procedural material semantics (wood, glass,  │
+      │    fabric, metal, plastic, concrete, etc.)      │
+      │  • Light sources (point, sun, spot, area)       │
+      │    with RGB colors, intensity, and spot angles  │
       └─────────────────────────────────────────────────┘
           │
           ▼
   [4.5] SceneGraph
-      Sistema di layout spaziale basato su bounding box orientati (OBB).
-      Calcola le intersezioni tra oggetti ruotati e risolve le sovrapposizioni
-      spostando gli elementi lungo l'asse di minima penetrazione (AABB SAT).
-      Filtra gli oggetti child per evitare conflitti spaziali ridondanti.
+      Spatial layout system based on oriented bounding boxes (OBB).
+      Computes intersections between rotated objects and resolves overlaps
+      by displacing elements along the minimum penetration axis (AABB SAT).
+      Filters child objects to avoid redundant spatial conflicts.
           │
           ▼
   [5] SceneBuilder + Renderer (Blender / bpy)
-      Configurazione di luci, camera e ambiente (HDRI).
-      Generazione automatica di pavimento e pareti (Room Mode).
-      Importazione degli asset con allineamento alle superfici via raycasting.
-      Applicazione di materiali PBR e gestione della gerarchia diretta.
-      Esportazione in formati 2D (PNG) e 3D (GLB, USDZ).
+      Configuration of lights, camera, and environment (HDRI).
+      Automatic generation of floor and walls (Room Mode).
+      Asset import with surface alignment via raycasting.
+      Application of PBR materials and direct hierarchy management.
+      Export in 2D (PNG) and 3D (GLB, USDZ) formats.
 ```
 
 ---
 
-Il formato JSON intermedio prodotto dal modello e consumato da Blender segue questo schema:
+The intermediate JSON format produced by the model and consumed by Blender follows this schema:
 
 ```json
 [
@@ -116,61 +117,61 @@ Il formato JSON intermedio prodotto dal modello e consumato da Blender segue que
 ]
 ```
 
-Tutte le coordinate sono espresse in unità Blender (1 unità = 1 metro). Le rotazioni sono in radianti nel sistema Euler XYZ. I colori RGB sono normalizzati all'intervallo `[0.0, 1.0]`.
+All coordinates are expressed in Blender units (1 unit = 1 metre). Rotations are in radians using the Euler XYZ convention. RGB colors are normalized to the `[0.0, 1.0]` range.
 
 ---
 
-## Struttura del repository
+## Repository Structure
 
 ```
 Computer_Graphics_Project/
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml                 # Lint, test, security su push/PR
-│   │   └── docker.yml             # Build e push immagine Docker su GHCR
+│   │   ├── ci.yml                 # Lint, test, security on push/PR
+│   │   └── docker.yml             # Docker image build and push to GHCR
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── assets/
-│   ├── models/                    # Asset 3D (.obj, .fbx, .glb) — non versionati
-│   └── renders/                   # Output PNG generati da Blender
+│   ├── models/                    # 3D assets (.obj, .fbx, .glb) — not versioned
+│   └── renders/                   # PNG outputs generated by Blender
 ├── config/
-│   ├── settings.yaml              # Configurazione principale del progetto
+│   ├── settings.yaml              # Main project configuration
 │   └── prompts/
-│       ├── system_prompt.txt      # Prompt di sistema per il modello LLM
-│       └── multi_room_prompt.txt  # Prompt avanzato per scene multi-stanza
+│       ├── system_prompt.txt      # System prompt for the LLM
+│       └── multi_room_prompt.txt  # Advanced prompt for multi-room scenes
 ├── docs/
-│   ├── architecture.md            # Documentazione architettura dettagliata
-│   ├── installation.md            # Guida all'installazione
-│   ├── usage.md                   # Guida all'utilizzo
-│   └── contributing.md            # Guida alla contribuzione
+│   ├── architecture.md
+│   ├── installation.md
+│   ├── usage.md
+│   └── contributing.md
 ├── src/
 │   └── computer_graphics/
 │       ├── __init__.py
-│       ├── cli.py                 # Entry point CLI (computer-graphics)
-│       ├── config_loader.py       # Caricamento config YAML + .env
-│       ├── input_handler.py       # Fase 1: gestione input utente
-│       ├── prompt_builder.py      # Fase 2: costruzione payload Ollama
-│       ├── ollama_client.py       # Fase 3: client HTTP per Ollama
-│       ├── json_parser.py         # Fase 4: parsing robusto del JSON
-│       ├── validator.py           # Fase 4: validazione con Pydantic
-│       │                          #        Supporta SceneObject, LightObject
-│       │                          #        Gerarchia parent-child, materiali
-│       ├── scene_graph.py         # Fase 4.5: layout spaziale e collisioni
-│       ├── orchestrator.py        # Coordinamento con ciclo agentico retry
+│       ├── cli.py                 # CLI entry point (computer-graphics)
+│       ├── config_loader.py       # YAML + .env config loading
+│       ├── input_handler.py       # Stage 1: user input handling
+│       ├── prompt_builder.py      # Stage 2: Ollama payload construction
+│       ├── ollama_client.py       # Stage 3: HTTP client for Ollama
+│       ├── json_parser.py         # Stage 4: robust JSON parsing
+│       ├── validator.py           # Stage 4: Pydantic validation
+│       │                          #          Supports SceneObject, LightObject,
+│       │                          #          parent-child hierarchy, materials
+│       ├── scene_graph.py         # Stage 4.5: spatial layout and collision
+│       ├── orchestrator.py        # Pipeline coordination with agentic retry
 │       └── blender/
 │           ├── __init__.py
-│           ├── scene_builder.py   # Costruzione scena, importazione asset,
-│           │                      # snap alle superfici, materiali PBR
-│           └── renderer.py        # Rendering PNG ed esportazione GLB/USDZ
+│           ├── scene_builder.py   # Scene construction, asset import,
+│           │                      # surface snap, PBR materials
+│           └── renderer.py        # PNG rendering and GLB/USDZ export
 ├── scripts/
-│   ├── run_pipeline.py            # Entry point CLI principale
-│   ├── blender_runner.py          # Script da eseguire dentro Blender
-│   ├── generate_primitives.py     # Generatore automatico asset 3D primitivi
-│   └── setup_assets.py            # Utility per la libreria asset
+│   ├── run_pipeline.py            # Main CLI entry point
+│   ├── blender_runner.py          # Script executed inside Blender
+│   ├── generate_primitives.py     # Automatic primitive 3D asset generator
+│   └── setup_assets.py            # Asset library utilities
 ├── tests/
-│   ├── conftest.py                # Fixture condivise
+│   ├── conftest.py                # Shared fixtures
 │   ├── test_input_handler.py
 │   ├── test_prompt_builder.py
 │   ├── test_ollama_client.py
@@ -198,189 +199,299 @@ Computer_Graphics_Project/
 
 ---
 
-## Requisiti
+## System Requirements
 
-### Dipendenze di sistema
-
-| Componente | Versione minima | Note |
+| Component | Minimum Version | Notes |
 |---|---|---|
-| Python | 3.10 | Richiesto per `match`/`case` e type hints moderni |
-| Blender | 4.0 | Necessario per la fase 5 (costruzione scena e render) |
-| Ollama | Ultima stabile | Deve essere installato separatamente |
-| Docker | 24.0 | Opzionale, necessario solo per la modalità containerizzata |
-| Git | 2.40 | Per il versionamento e i pre-commit hook |
+| **Python** | 3.10+ | Required for `match`/`case` and modern type hints |
+| **Git** | 2.40+ | Version control |
+| **Blender** | 4.0+ | 3D scene construction and rendering |
+| **Ollama** | Latest stable | Local AI server (separate installation) |
+| **Disk space** | ~12 GB | Includes the AI model and 3D assets |
 
-### Dipendenze Python (produzione)
-
-| Pacchetto | Versione | Scopo |
-|---|---|---|
-| `requests` | >=2.31.0 | Comunicazione HTTP con il server Ollama |
-| `pyyaml` | >=6.0.1 | Lettura della configurazione `settings.yaml` |
-| `click` | >=8.1.7 | Interfaccia CLI |
-| `rich` | >=13.7.0 | Output formattato a terminale, tabelle, spinner |
-| `pydantic` | >=2.5.0 | Validazione e serializzazione degli oggetti scena |
-
-### Dipendenze Python (sviluppo)
-
-| Pacchetto | Versione | Scopo |
-|---|---|---|
-| `pytest` | >=7.4.0 | Framework di test |
-| `pytest-cov` | >=4.1.0 | Coverage dei test |
-| `pytest-mock` | >=3.12.0 | Mock per test unitari |
-| `ruff` | >=0.1.9 | Linter veloce |
-| `black` | >=23.12.0 | Formattatore del codice |
-| `mypy` | >=1.8.0 | Controllo statico dei tipi |
-| `pre-commit` | >=3.6.0 | Hook Git pre-commit |
-| `responses` | >=0.25.0 | Mock delle chiamate HTTP nei test |
-| `bandit` | >=1.7.0 | Analisi statica della sicurezza |
-| `pip-audit` | >=2.6.0 | Verifica vulnerabilità nelle dipendenze |
+All paths in the commands below must be adapted to match the local environment.
 
 ---
 
-## Installazione
+## Quick Start Guide
 
-### Installazione di Ollama
+This section covers the complete workflow from a text description to a 3D render in Blender.
 
-Ollama è l'unico componente che richiede installazione separata. Espone un server HTTP locale sulla porta 11434 che riceve le richieste di inferenza.
+### Section 1 — Starting Ollama
 
-**Linux:**
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
+Ollama is the local AI server that processes text descriptions and generates 3D object coordinates. It must be running before the pipeline is executed.
+
+**Option A (recommended):** Launch the Ollama application from the Start menu. It runs in the background and appears as an icon in the system tray.
+
+**Option B:** Open a PowerShell terminal and run:
+
+```powershell
+ollama serve
 ```
 
-**macOS:**
-```bash
-brew install ollama
+> If Ollama is already running, the command will report an error on port 11434. This is expected and indicates the server is already active.
+
+### Section 2 — Python Pipeline
+
+Open a **new PowerShell terminal** and follow the steps below in order.
+
+#### Step 1 — Navigate to the project directory
+
+```powershell
+cd C:\path\to\Computer_Graphics_Project
 ```
 
-**Windows (PowerShell con privilegi di amministratore):**
+#### Step 2 — Activate the virtual environment
+
+```powershell
+.venv\Scripts\activate
+```
+
+A successful activation will display `(.venv)` at the start of the prompt.
+
+#### Step 3 — Verify the Ollama connection
+
+```powershell
+python -c "from computer_graphics.ollama_client import OllamaClient; print(OllamaClient().health_check())"
+```
+
+The command should return `True`. If it returns `False`, verify that the Ollama server is running (Step 0 above).
+
+#### Step 4 — Run the pipeline
+
+```powershell
+python scripts/run_pipeline.py "a room with a table and two chairs"
+```
+
+> If no model is specified, the system will prompt you to choose from those available on your Ollama server.
+
+On completion, the following file is created in the project root:
+
+```
+scene_objects.json
+```
+
+### Section 3 — Blender Scene Construction and Rendering
+
+#### Step 5 — Install Blender
+
+Download Blender 4.0 or later from [https://www.blender.org/download/](https://www.blender.org/download/) and add its installation directory to the system `PATH`. Verify the installation:
+
+```powershell
+blender --version
+```
+
+#### Step 6 — Generate primitive 3D assets (one-time setup)
+
+This step generates 12 base 3D models (table, chair, lamp, etc.) in `assets/models/`. It only needs to be run once.
+
+```powershell
+blender --background --python scripts/generate_primitives.py
+```
+
+The following assets are created: `table`, `chair`, `lamp`, `desk`, `sofa`, `bookshelf`, `monitor`, `plant`, `bed`, `cabinet`, `rug`, `fridge`.
+
+#### Step 7 — Render the final scene
+
+```powershell
+blender --background --python scripts/blender_runner.py -- scene_objects.json --render assets/renders/output.png
+```
+
+The output PNG is saved to `assets/renders/output.png`. Rendering time depends on the system's hardware specifications.
+
+### Complete Session Workflow
+
+```powershell
+# 1. Navigate to the project directory
+cd C:\path\to\Computer_Graphics_Project
+
+# 2. Activate the virtual environment
+.venv\Scripts\activate
+
+# 3. Verify the Ollama server connection
+python -c "from computer_graphics.ollama_client import OllamaClient; print(OllamaClient().health_check())"
+
+# 4. Generate the scene JSON file
+python scripts/run_pipeline.py "scene description"
+
+# 5. Build and render the scene in Blender
+blender --background --python scripts/blender_runner.py -- scene_objects.json --render assets/renders/output.png
+```
+
+---
+
+## Dependencies
+
+### System Dependencies
+
+| Component | Minimum Version | Notes |
+|---|---|---|
+| Python | 3.10 | Required for `match`/`case` and modern type hints |
+| Blender | 4.0 | Required for Stage 5 (scene construction and rendering) |
+| Ollama | Latest stable | Must be installed separately |
+| Docker | 24.0 | Optional, required only for containerized mode |
+| Git | 2.40 | Version control and pre-commit hooks |
+
+### Python Dependencies (production)
+
+| Package | Version | Purpose |
+|---|---|---|
+| `requests` | >=2.31.0 | HTTP communication with the Ollama server |
+| `pyyaml` | >=6.0.1 | Reading `settings.yaml` configuration |
+| `click` | >=8.1.7 | CLI interface |
+| `rich` | >=13.7.0 | Formatted terminal output, tables, spinners |
+| `pydantic` | >=2.5.0 | Scene object validation and serialization |
+
+### Python Dependencies (development)
+
+| Package | Version | Purpose |
+|---|---|---|
+| `pytest` | >=7.4.0 | Test framework |
+| `pytest-cov` | >=4.1.0 | Test coverage |
+| `pytest-mock` | >=3.12.0 | Mocking for unit tests |
+| `ruff` | >=0.1.9 | Fast linter |
+| `black` | >=23.12.0 | Code formatter |
+| `mypy` | >=1.8.0 | Static type checking |
+| `pre-commit` | >=3.6.0 | Git pre-commit hooks |
+| `responses` | >=0.25.0 | HTTP call mocking in tests |
+| `bandit` | >=1.7.0 | Static security analysis |
+| `pip-audit` | >=2.6.0 | Dependency vulnerability scanning |
+
+---
+
+## Installation
+
+### Prerequisites
+
+Before proceeding, ensure the following are installed:
+
+1. **Python 3.10+** — [Download](https://www.python.org/downloads/)
+2. **Git** — [Download](https://git-scm.com/)
+3. **Blender 4.0+** — [Download](https://www.blender.org/download/)
+4. **Ollama** — [Download](https://ollama.com)
+
+### Installing Ollama
+
+Ollama is the only component that requires a separate installation. It exposes a local HTTP server on port 11434 to handle inference requests.
+
+**Windows (PowerShell with administrator privileges):**
+
 ```powershell
 winget install Ollama.Ollama
 ```
 
-Dopo l'installazione, avviare il server in un terminale separato e scaricare il modello:
+After installation, download a model (one-time operation):
 
-```bash
-# Terminale 1: avvia il server (mantenerlo aperto durante tutta la sessione)
+```powershell
+# Start the server (keep this terminal open during the session)
 ollama serve
 
-# Terminale 2: scarica il modello (operazione una-tantum, ~4 GB)
+# Download a model (~2 GB for phi3, ~4 GB for llama3)
 ollama pull llama3
-
-# Verifica che il server risponda correttamente
-curl http://localhost:11434/api/tags
 ```
 
-Il server risponde sulla porta `11434`. Questa è anche la porta configurata di default in `config/settings.yaml` e nel file `.env.example`.
+**Supported models:**
 
-Modelli alternativi supportati (con compromessi velocità/qualità):
+| Model | Size | Notes |
+|---|---|---|
+| `phi3` | ~2 GB | Lightweight, suitable for low-RAM machines |
+| `llama3` | ~4 GB | **Recommended** — best quality/speed balance |
+| `mistral` | ~4 GB | Valid alternative |
 
-| Modello | Dimensione | Qualità JSON | Note |
-|---|---|---|---|
-| `llama3` / `llama3:8b` | ~4 GB | ★★★★☆ | Raccomandato, buon bilanciamento |
-| `mistral` | ~4 GB | ★★★★☆ | Alternativa valida |
-| `phi3` | ~2 GB | ★★★☆☆ | Leggero, adatto a macchine con poca RAM |
-| `llama3:70b` | ~40 GB | ★★★★★ | Alta qualità, richiede hardware dedicato |
+### Installing the Project
 
-### Installazione del progetto
-
-```bash
-# Clona il repository
-git clone https://github.com/yourusername/Computer_Graphics_Project.git
+```powershell
+# Clone the repository
+git clone https://github.com/Anass-Chebbaki/Computer_Graphics_Project.git
 cd Computer_Graphics_Project
 
-# Crea e attiva l'ambiente virtuale Python
+# Create the Python virtual environment
 python -m venv .venv
 
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows
+# Activate the virtual environment (Windows)
 .venv\Scripts\activate
 
-# Aggiorna pip e installa il progetto con le dipendenze di sviluppo
-pip install --upgrade pip
+# Upgrade pip and install the project with development dependencies
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 
-# Installa i pre-commit hook
+# Install pre-commit hooks
 pre-commit install
 
-# Copia il file di configurazione ambiente
+# Copy the environment configuration file
 cp .env.example .env
 ```
 
-Verifica che l'installazione sia andata a buon fine:
+Verify the installation:
 
-```bash
-# Verifica tutti i prerequisiti di sistema in un colpo solo
-computer-graphics check
-
-# Esegui la suite di test
-make test
-
-# Verifica che Ollama sia raggiungibile
+```powershell
+# Verify Ollama is reachable
 python -c "from computer_graphics.ollama_client import OllamaClient; print(OllamaClient().health_check())"
+# Expected output: True
+
+# Run the test suite
+make test
 ```
 
-### Generazione asset primitivi
+### Generating Primitive Assets
 
-Se non si dispone di modelli 3D, è possibile generare automaticamente asset primitivi con Blender. Lo script `scripts/generate_primitives.py` costruisce geometria di base (tavolo con piano e gambe, sedia con sedile e schienale, lampada con base e paralume, ecc.) ed esporta ogni oggetto come file `.obj` nella directory `assets/models/`.
+If no 3D models are available, primitive assets can be generated automatically with Blender. The `scripts/generate_primitives.py` script constructs basic geometry and exports each object as an `.obj` file to `assets/models/`.
 
-```bash
-make generate-primitives
+```powershell
+blender --background --python scripts/generate_primitives.py
 ```
 
-Questo consente di dimostrare la pipeline completa — dall'input testuale al render finale — senza dipendere da asset esterni.
+This enables a full demonstration of the pipeline — from text input to final render — without any external asset dependencies.
 
 ---
 
-## Configurazione
+## Configuration
 
-### File `.env`
+### `.env` File
 
-Copiare `.env.example` in `.env` e modificare i valori secondo l'ambiente locale:
+Copy `.env.example` to `.env` and adjust the values to match the local environment:
 
 ```dotenv
-# URL del server Ollama
+# Ollama server URL
 OLLAMA_URL=http://localhost:11434
 
-# Modello LLM da utilizzare
-OLLAMA_MODEL=llama3
+# LLM model to use (optional, will prompt if empty)
+# OLLAMA_MODEL=llama3
 
-# Timeout in secondi per la chiamata HTTP al modello
-# Aumentare questo valore su hardware lento o con modelli grandi
+# HTTP request timeout in seconds
+# Increase this value on slow hardware or when using large models
 OLLAMA_TIMEOUT=180
 
-# Percorso alla directory degli asset 3D
+# Path to the 3D asset directory
 ASSETS_DIR=./assets/models
 
-# Directory di output per i render PNG
+# Output directory for PNG renders
 RENDER_OUTPUT_DIR=./assets/renders
 
-# Numero massimo di tentativi in caso di JSON non valido
+# Maximum number of retries on invalid JSON
 MAX_RETRIES=3
 
-# Livello di log: DEBUG, INFO, WARNING, ERROR
+# Log level: DEBUG, INFO, WARNING, ERROR
 LOG_LEVEL=INFO
 ```
 
-Le variabili d'ambiente hanno sempre la precedenza sulle impostazioni definite in `config/settings.yaml`. Il caricamento segue questa priorità: **variabili d'ambiente → file `.env` → `settings.yaml` → valori di default**.
+Environment variables always take precedence over settings defined in `config/settings.yaml`. The loading order is: **environment variables → `.env` file → `settings.yaml` → default values**.
 
-### File `config/settings.yaml`
+### `config/settings.yaml`
 
-Il file YAML centralizza tutti i parametri di configurazione:
+The YAML file centralizes all configuration parameters:
 
 ```yaml
 ollama:
   url: "http://localhost:11434"
-  model: "llama3"
+  model: null            # Set a model name here or leave null for interactive selection
   timeout: 180
   max_connection_retries: 3
   retry_delay: 2.0
   options:
-    temperature: 0.2      # Bassa temperatura per output deterministico
+    temperature: 0.2      # Low temperature for deterministic output
     top_p: 0.9
-    num_predict: 1024     # Limite massimo di token nella risposta
+    num_predict: 1024     # Maximum token limit in the response
 
 pipeline:
   max_retries: 3
@@ -392,7 +503,7 @@ paths:
   prompt_file: "config/prompts/system_prompt.txt"
 
 blender:
-  render_engine: "CYCLES"   # Alternativa: BLENDER_EEVEE
+  render_engine: "CYCLES"   # Alternative: BLENDER_EEVEE
   resolution_x: 1920
   resolution_y: 1080
   samples: 64
@@ -410,141 +521,156 @@ room_mode:
   ceiling: false
 ```
 
-### Prompt di sistema
+### System Prompt
 
-Il prompt di sistema in `config/prompts/system_prompt.txt` è il componente più critico per la qualità dell'output. Istruisce il modello a rispondere esclusivamente con un array JSON valido secondo lo schema atteso. Il file può essere modificato per adattare il comportamento del modello senza toccare il codice sorgente.
+The system prompt at `config/prompts/system_prompt.txt` is the most critical component for output quality. It instructs the model to respond exclusively with a valid JSON array conforming to the expected schema. The file can be modified to adjust the model's behaviour without touching the source code.
 
-Per scene complesse con molti oggetti o layout multi-stanza, è disponibile il prompt alternativo `config/prompts/multi_room_prompt.txt`, che include linee guida spaziali più dettagliate e vincoli di distanza tra zone funzionali.
+For complex scenes with many objects or multi-room layouts, the alternative prompt at `config/prompts/multi_room_prompt.txt` is available. It includes more detailed spatial guidelines and inter-zone distance constraints.
 
-Il `PromptBuilder` carica il prompt con questa priorità:
-1. Testo passato esplicitamente come argomento al costruttore
-2. File specificato tramite il parametro `system_prompt_file`
-3. File nel percorso convenzionale `config/prompts/system_prompt.txt`
-4. Prompt di default hardcoded nel modulo `prompt_builder.py`
+`PromptBuilder` loads the prompt using the following priority:
+
+1. Text passed explicitly as a constructor argument
+2. File specified via the `system_prompt_file` parameter
+3. File at the conventional path `config/prompts/system_prompt.txt`
+4. Default prompt hardcoded in `prompt_builder.py`
 
 ---
 
-## Utilizzo
+## Usage
 
-### Esecuzione rapida
+### Activating the Environment
 
-```bash
-# Demo con descrizione predefinita (non richiede input interattivo)
-make demo
+Always activate the virtual environment before running any commands:
 
-# Modalità interattiva: chiede la descrizione a terminale
-make pipeline
-
-# Costruzione scena in Blender senza render
-make blender-run
-
-# Costruzione scena in Blender con render PNG
-make blender-render
-
-# Genera asset 3D primitivi (.obj) per tutti gli oggetti supportati
-make generate-primitives
-
-# Verifica lo stato della libreria di asset
-make check-assets
+```powershell
+cd C:\path\to\Computer_Graphics_Project
+.venv\Scripts\activate
 ```
 
-### CLI installata (`computer-graphics`)
+### Generating the Scene JSON
 
-Dopo `pip install -e .`, il comando `computer-graphics` è disponibile globalmente:
+```powershell
+# Pass the description as a command-line argument
+python scripts/run_pipeline.py "a kitchen with a table, two chairs, and a fridge"
+
+# Interactive mode (description prompted at the terminal)
+python scripts/run_pipeline.py --interactive
+```
+
+### Generating the 3D Render
+
+```powershell
+blender --background --python scripts/blender_runner.py -- scene_objects.json --render assets/renders/output.png
+```
+
+### Available Make Commands
+
+```powershell
+make demo                # Full demo with a predefined description
+make pipeline            # Run the pipeline in interactive mode
+make blender-run         # Build the Blender scene without rendering
+make blender-render      # Build the Blender scene and generate a PNG render
+make generate-primitives # Generate primitive 3D assets (.obj)
+make check-assets        # Verify the asset library
+make test                # Run the test suite
+make test-cov            # Run tests with a coverage report
+make lint                # Lint the codebase
+make format              # Apply automatic code formatting
+```
+
+### Installed CLI (`computer-graphics`)
+
+After `pip install -e .`, the `computer-graphics` command is available globally:
 
 ```bash
-# Descrizione come argomento
-computer-graphics generate "una cucina con tavolo, due sedie e un frigorifero"
+# Pass the description as an argument
+computer-graphics generate "a kitchen with a table, two chairs, and a fridge"
 
-# Modalità interattiva
+# Interactive mode
 computer-graphics generate --interactive
 
-# Da file di testo
-computer-graphics generate --file descrizione.txt
+# Read the description from a text file
+computer-graphics generate --file scene_description.txt
 
-# Con lancio automatico di Blender al termine della pipeline
-computer-graphics generate "una stanza con tavolo e sedia" --blender
-
-# Con lancio automatico di Blender e render PNG
-computer-graphics generate "una stanza con tavolo e sedia" --blender --render
-
-# Specifica modello, output e numero di tentativi
-computer-graphics generate "scrivania con monitor" \
+# Specify model, output file, and retry count
+computer-graphics generate "desk with monitor" \
   --model mistral \
-  --output scrivania.json \
+  --output desk.json \
   --retries 5
 
-# Modalità verbose per debug
-computer-graphics generate "test" --verbose
+# Run the pipeline and launch Blender automatically
+computer-graphics generate "scene description" --blender
 
-# Verifica prerequisiti di sistema (Ollama, Blender, Python, asset)
+# Run the pipeline, launch Blender, and generate a render
+computer-graphics generate "scene description" --blender --render
+
+# Check system prerequisites
 computer-graphics check
 
-# Mostra la configurazione corrente
+# Display the current configuration
 computer-graphics info
 
-# Valida un file JSON di oggetti esistente
+# Validate an existing scene JSON file
 computer-graphics validate scene_objects.json
 ```
 
-### Script `run_pipeline.py`
+### `run_pipeline.py` Reference
 
-Lo script gestisce le fasi 1–4.5 (input → JSON con layout anti-collisione) e salva il risultato in un file JSON:
+Manages Stages 1–4.5 (input → collision-free JSON layout) and saves the result to a JSON file:
 
 ```bash
-# Descrizione passata come argomento
-python scripts/run_pipeline.py "una cucina con tavolo, due sedie e un frigorifero"
+# Pass description as argument
+python scripts/run_pipeline.py "a meeting room with a desk, four chairs, and a lamp"
 
-# Modalità interattiva
+# Interactive mode
 python scripts/run_pipeline.py --interactive
 
-# Lettura da file
-python scripts/run_pipeline.py --file descrizione_scena.txt
+# Read from file
+python scripts/run_pipeline.py --file scene_description.txt
 
-# Con parametri espliciti
+# All parameters
 python scripts/run_pipeline.py \
-  "una sala riunioni con scrivania, quattro sedie e una lampada" \
+  "a meeting room with a desk, four chairs, and a lamp" \
   --model mistral \
-  --output sala_riunioni.json \
+  --output meeting_room.json \
   --retries 5 \
   --ollama-url http://localhost:11434 \
   --verbose
 ```
 
-### Script `blender_runner.py`
+### `blender_runner.py` Reference
 
-Lo script gestisce la fase 5 (JSON → scena 3D) ed è progettato per essere eseguito dentro Blender:
+Manages Stage 5 (JSON → 3D scene) and is designed to be executed inside Blender:
 
 ```bash
-# Costruzione scena in Blender dal JSON generato
+# Build scene from generated JSON
 blender --background --python scripts/blender_runner.py -- scene_objects.json
 
-# Costruzione scena con render PNG
+# Build scene and render to PNG
 blender --background --python scripts/blender_runner.py \
   -- scene_objects.json \
   --render assets/renders/output.png
 
-# Solo costruzione scena, senza render
+# Build scene without rendering
 blender --background --python scripts/blender_runner.py \
   -- scene_objects.json \
   --no-render
 ```
 
-### Utilizzo come libreria Python
+### Using as a Python Library
 
 ```python
 from computer_graphics.orchestrator import generate_scene_objects
-from computer_graphics.scene_graph import apply_scene_graph
 from computer_graphics.ollama_client import OllamaClient
 
-# Verifica che Ollama sia raggiungibile
+# Verify Ollama is reachable
 client = OllamaClient()
 if not client.health_check():
-    raise RuntimeError("Ollama non è raggiungibile. Eseguire: ollama serve")
+    raise RuntimeError("Ollama is not reachable. Run: ollama serve")
 
-# Esecuzione della pipeline (include layout anti-collisione)
+# Run the pipeline (includes collision-free layout)
 objects = generate_scene_objects(
-    scene_description="una stanza con tavolo, sedia e lampada da terra",
+    scene_description="a room with a table, a chair, and a floor lamp",
     model="llama3",
     max_retries=3,
     ollama_url="http://localhost:11434",
@@ -552,58 +678,161 @@ objects = generate_scene_objects(
     verbose=True,
 )
 
-# Ogni oggetto è un'istanza Pydantic con accesso diretto agli attributi
+# Each object is a Pydantic instance with direct attribute access
 for obj in objects:
     print(f"{obj.name}: x={obj.x:.2f}, y={obj.y:.2f}, z={obj.z:.2f}, scale={obj.scale:.2f}")
 
-# Serializzazione in dizionario o JSON
+# Serialize to dict or JSON
 import json
 data = [obj.model_dump() for obj in objects]
 print(json.dumps(data, indent=2))
 ```
 
-### Utilizzo da Blender Text Editor
+### Running from the Blender Text Editor
 
-Per eseguire lo script direttamente dall'editor interno di Blender senza passare dal terminale:
+To run the script directly from Blender's internal editor without using a terminal:
 
-1. Aprire Blender e accedere all'area **Text Editor**
-2. Aprire il file `scripts/blender_runner.py`
-3. Modificare la sezione `CONFIG` in cima al file:
+1. Open Blender and navigate to the **Text Editor** workspace.
+2. Open `scripts/blender_runner.py`.
+3. Edit the `CONFIG` section at the top of the file:
    ```python
-   OBJECTS_JSON_PATH: str = "/percorso/assoluto/scene_objects.json"
-   ASSETS_DIR: str = "/percorso/assoluto/assets/models"
-   RENDER_OUTPUT: str = "/percorso/assoluto/assets/renders/output.png"
+   OBJECTS_JSON_PATH: str = "/absolute/path/to/scene_objects.json"
+   ASSETS_DIR: str = "/absolute/path/to/assets/models"
+   RENDER_OUTPUT: str = "/absolute/path/to/assets/renders/output.png"
    RENDER_ENABLED: bool = True
    ```
-4. Premere **Run Script**
+4. Click **Run Script**.
 
 ---
 
-## Funzionalità avanzate
- 
-### Generazione 2D Preview
-Per convalidare spazialmente il layout prima di passare a Blender, è possibile generare una vista zenitale 2D:
-```bash
-python -m computer_graphics.cli "una stanza con un tavolo e quattro sedie" --preview
-```
-Questo genererà un'immagine `preview.png` con i bounding box degli oggetti.
+## CLI Reference
 
-### Supporto Multi-LLM
-Il sistema supporta swappable providers. È possibile configurare l'uso di Ollama o OpenAI nel file `settings.yaml`:
+### `computer-graphics generate`
+
+```
+Usage: computer-graphics generate [OPTIONS] [DESCRIPTION]
+
+Arguments:
+  DESCRIPTION           Scene description text
+
+Options:
+  -i, --interactive     Prompt for the description interactively
+  -f, --file PATH       Read the description from a .txt file
+  -m, --model TEXT      Ollama model name [default: dynamic selection]
+  -o, --output PATH     JSON output file  [default: scene_objects.json]
+  -r, --retries INT     Maximum number of retries  [default: 3]
+  --ollama-url TEXT     Ollama server URL  [default: http://localhost:11434]
+  -v, --verbose         Detailed debug output
+  -b, --blender         Automatically launch Blender on completion
+  --render              Generate a PNG render (requires --blender)
+  --render-output PATH  PNG output path  [default: assets/renders/output.png]
+  --export-glb          Export the scene in .glb format
+  --export-usdz         Export the scene in .usdz format
+  --export-output PATH  Base path for 3D export files
+  --help                Show this message and exit
+```
+
+### `python scripts/run_pipeline.py`
+
+```
+Usage: python scripts/run_pipeline.py [OPTIONS] [DESCRIPTION]
+
+Options:
+  -i, --interactive     Prompt for the description interactively
+  -f, --file PATH       Read the description from a .txt file
+  -m, --model TEXT      Ollama model name [default: dynamic selection]
+  -o, --output PATH     JSON output file  [default: scene_objects.json]
+  -r, --retries INT     Maximum number of retries  [default: 3]
+  --ollama-url TEXT     Ollama server URL  [default: http://localhost:11434]
+  -v, --verbose         Detailed debug output
+  --help                Show this message and exit
+```
+
+### `blender --background --python scripts/blender_runner.py`
+
+```
+Usage: blender --background --python scripts/blender_runner.py -- [OPTIONS] JSON_PATH
+
+Positional Arguments:
+  JSON_PATH             Path to the JSON file generated by the pipeline
+
+Options:
+  --render PATH         Enable rendering and save the PNG to the specified path
+  --no-render           Disable rendering (build the scene only)
+```
+
+### Makefile Commands
+
+```
+install              Install production dependencies
+install-dev          Install all dependencies including development packages
+lint                 Run ruff linter on src/, tests/, scripts/
+format               Format the code with black and ruff --fix
+type-check           Static type checking with mypy
+test                 Run the test suite with pytest
+test-cov             Run tests with an HTML coverage report in htmlcov/
+coverage-open        Open the coverage report in the browser
+ollama-start         Start the Ollama server in the background
+ollama-pull          Download the specified model (e.g. make ollama-pull MODEL=llama3)
+ollama-status        Show available models in the local server
+pipeline             Run the pipeline in interactive mode
+demo                 Quick run with a hardcoded example description
+blender-run          Launch Blender with the scene-building script
+blender-render       Launch Blender with scene construction and PNG rendering
+generate-primitives  Generate primitive 3D assets with Blender
+check-assets         Check the status of the asset library
+asset-report         Generate a JSON asset report
+cli-check            Verify system prerequisites via the CLI
+cli-info             Display configuration via the CLI
+cli-demo             Full demo via the computer-graphics command
+cli-validate         Validate the current JSON output
+docker-build         Build the Docker image
+docker-up            Start all services with Docker Compose
+docker-down          Stop Docker services
+docker-logs          Stream live container logs
+clean                Remove temporary files, caches, and build artefacts
+```
+
+---
+
+## Advanced Features
+
+### 2D Spatial Preview
+
+To validate the spatial layout before proceeding to Blender, a top-down 2D preview can be generated:
+
+```bash
+python -m computer_graphics.cli "a room with a table and four chairs" --preview
+```
+
+This produces a `preview.png` file showing the bounding boxes of all scene objects.
+
+### Multi-LLM Support
+
+The system supports swappable LLM providers. To use OpenAI instead of Ollama, configure the `llm` section in `settings.yaml`:
+
 ```yaml
 llm:
-  provider: "openai" # oppure "ollama"
+  provider: "openai"   # or "ollama"
   api_key: "your-key"
   base_url: "https://api.openai.com/v1"
 ```
 
-### Override del Colore
-Gli oggetti possono ricevere un override del colore RGB direttamente dal modello linguistico, che viene miscelato con il materiale procedurale scelto:
-- `color_override`: [R, G, B] (valori tra 0.0 e 1.0)
+### Color Override
 
-### Gerarchia parent-child
+Objects can receive an RGB color override directly from the language model. This value is blended with the chosen procedural material:
 
-Gli oggetti della scena supportano una gerarchia gerarchica tramite il campo `parent`. Questo consente di creare raggruppamenti logici dove le coordinate dei figli sono relative al padre:
+```json
+{
+  "name": "chair",
+  "material_semantics": "fabric",
+  "color_override": [0.2, 0.4, 0.8]
+}
+```
+
+### Parent-Child Hierarchy
+
+Scene objects support a parent-child relationship via the `parent` field. Child object coordinates are relative to the parent:
 
 ```json
 [
@@ -633,18 +862,18 @@ Gli oggetti della scena supportano una gerarchia gerarchica tramite il campo `pa
 ]
 ```
 
-In Blender, il mondo `SceneBuilder` crea automaticamente vincoli genitore-figlio (`parent_set()`) e applica le trasformazioni relative.
+`SceneBuilder` automatically creates parent-child constraints (`parent_set()`) in Blender and applies relative transformations.
 
-### Sorgenti luminose
+### Light Sources
 
-Il modello può generare sorgenti luminose oltre ai soli oggetti. Ogni sorgente è rappresentata da un oggetto `LightObject` con:
+The model can generate light sources alongside regular objects. Each source is represented by a `LightObject` with the following properties:
 
-- **Tipo di luce**: `POINT` (omni-direzionale), `SUN` (direzionale infinita), `SPOT` (cono focalizzato), `AREA` (emissione di superficie)
-- **Colore RGB**: Tripla normalizzata `[0.0, 1.0]` per canale (es. bianco `[1.0, 1.0, 1.0]`, giallo lampato `[1.0, 1.0, 0.8]`)
-- **Intensità**: `energy` in Watt (Cycles render) o unità arbitrarie (EEVEE)
-- **Angolo spot** (solo SPOT): `spot_size` in radianti (~0.785 rad ≈ 45°)
+- **Type**: `POINT` (omni-directional), `SUN` (infinite directional), `SPOT` (focused cone), `AREA` (surface emission)
+- **Color**: Normalized RGB triple `[0.0, 1.0]` per channel (e.g. white: `[1.0, 1.0, 1.0]`, warm: `[1.0, 1.0, 0.8]`)
+- **Intensity**: `energy` in Watts (Cycles) or arbitrary units (EEVEE)
+- **Spot angle** (SPOT only): `spot_size` in radians (~0.785 rad ≈ 45°)
 
-Esempio:
+Example:
 
 ```json
 {
@@ -658,495 +887,390 @@ Esempio:
 }
 ```
 
-### Materiali procedurali
+### Procedural Materials
 
-Il campo `material_semantics` permette al modello di specificare il tipo di materiale in modo dichiarativo. `SceneBuilder` applica shader procedurali corrispondenti:
+The `material_semantics` field allows the model to specify the material type declaratively. `SceneBuilder` applies the corresponding procedural shader:
 
-| Semantica | Descrizione | Proprietà | Shader |
+| Semantic | Description | Properties | Shader |
 |---|---|---|---|
-| `wood` | Legno | Diffuso marrone, bump, venatura | Procedurale legno |
-| `glass` | Vetro trasparente | IOR 1.45, traslucenza | Glass BSDF |
-| `fabric` | Tessuto morbido | Diffuso satinato, micro-roughness | Diffuse + Coat |
-| `metal` | Metallo lucido | Specular alto, IOR metallico | Metal BSDF |
-| `plastic` | Plastica | Diffuso leggero, specular medio | Diffuse + Glossy |
-| `concrete` | Cemento | Diffuso grigio, roughness alta, pori | Procedurale |
-| `ceramic` | Ceramica | Glittery, specular sottile | Glossy + Diffuse |
-| `leather` | Pelle | Marrone scuro, anisotropic | Anisotropic |
-| `marble` | Marmo | Bianco, venature fini, specular | Procedurale |
-| `rubber` | Gomma | Nero opaco, roughness alta | Matte |
+| `wood` | Wood | Brown diffuse, bump, grain | Procedural wood |
+| `glass` | Transparent glass | IOR 1.45, translucency | Glass BSDF |
+| `fabric` | Soft fabric | Satin diffuse, micro-roughness | Diffuse + Coat |
+| `metal` | Shiny metal | High specular, metallic IOR | Metal BSDF |
+| `plastic` | Plastic | Light diffuse, medium specular | Diffuse + Glossy |
+| `concrete` | Concrete | Grey diffuse, high roughness, pores | Procedural |
+| `ceramic` | Ceramic | Subtle gloss, thin specular | Glossy + Diffuse |
+| `leather` | Leather | Dark brown, anisotropic | Anisotropic |
+| `marble` | Marble | White, fine veining, specular | Procedural |
+| `rubber` | Rubber | Matt black, high roughness | Matte |
 
-### Configurazione Materiali PBR
+### PBR Texture Support
 
-I parametri degli shader (metallic, roughness, IOR, ecc.) sono definiti in `config/materials.yaml`. Il sistema supporta l'applicazione automatica di texture PBR se presenti nella struttura:
+Shader parameters (metallic, roughness, IOR, etc.) are defined in `config/materials.yaml`. The system supports automatic PBR texture application if textures are present in the following structure:
 
-`assets/textures/<material_semantics>/[albedo|roughness|normal|displacement].[png|jpg]`
-
-### Allineamento alle superfici (Surface Snap)
-
-Il sistema utilizza algoritmi di raycasting per rilevare le superfici sottostanti agli oggetti (pavimenti, ripiani, ecc.) e corregge automaticamente la coordinata Z per garantire il contatto fisico. Il processo esclude l'auto-collisione dell'oggetto sorgente per evitare errori di posizionamento.
-
-Esempio:
-
-```json
-[
-  {
-    "name": "table",
-    "material_semantics": "wood",
-    "scale": 2.0
-  },
-  {
-    "name": "glass_vase",
-    "material_semantics": "glass",
-    "scale": 0.5
-  }
-]
+```
+assets/textures/<material_semantics>/[albedo|roughness|normal|displacement].[png|jpg]
 ```
 
-### Risoluzione automatica delle collisioni
+### Surface Snap
 
-La fase **SceneGraph** rileva automaticamente le sovrapposizioni tra bounding box AABB e applica iterazioni di aggiustamento coordinato per risolverle. Se le collisioni non sono risolvibili spazialmente (troppi oggetti in uno spazio ristretto), viene attivato un **ciclo agentico**:
+The system uses raycasting to detect surfaces beneath objects (floors, shelves, etc.) and automatically corrects the Z coordinate to ensure physical contact. Self-collision of the source object is excluded to prevent positioning errors.
 
-1. **Rilevamento**: SceneGraph calcola la densità della scena (oggetti / metri quadri)
-2. **Analisi**: Se la densità supera una soglia e rimangono collisioni, identifica la coppia più problematica
-3. **Feedback**: Genera un messaggio con istruzioni esplicite per il modello: *"Aumenta la distanza tra `object_a` e `object_b` di almeno 1.5 metri"*
-4. **Regenerazione**: Reinvia il feedback al modello tramite il ciclo di conversazione, chiedendo di rigenerare le coordinate
-5. **Iterazione**: Ripete fino a 3 tentativi (configurabile con `--retries`)
+### Automatic Collision Resolution
 
-Questo garantisce che anche scene complesse convergano verso un layout fisicamente valido senza richiedere manuale post-processing dei risultati.
+The **SceneGraph** stage automatically detects AABB bounding box overlaps and applies iterative coordinate adjustments to resolve them. If collisions cannot be resolved spatially (too many objects in a constrained area), an **agentic retry loop** is triggered:
+
+1. **Detection**: SceneGraph computes scene density (objects per square metre).
+2. **Analysis**: If density exceeds the threshold and collisions remain, identifies the most problematic pair.
+3. **Feedback**: Generates an explicit instruction for the model: *"Increase the distance between `object_a` and `object_b` by at least 1.5 metres."*
+4. **Regeneration**: Sends the feedback to the model via the conversation loop, requesting new coordinates.
+5. **Iteration**: Repeats for up to 3 attempts (configurable via `--retries`).
+
+This ensures that even complex scenes converge to a physically valid layout without manual post-processing.
 
 ---
 
-## Riferimento CLI
+## 3D Assets
 
-### `computer-graphics generate`
+The `assets/models/` directory must contain the 3D model files. The system indexes files recursively and uses a TF-IDF search with IDF weights to find the asset most similar to a given text query.
 
-```
-Utilizzo: computer-graphics generate [OPZIONI] [DESCRIZIONE]
+**Supported formats:**
 
-Argomenti:
-  DESCRIZIONE           Testo della scena da generare
+- `.obj` (Wavefront OBJ)
+- `.fbx` (Autodesk FBX)
+- `.glb` / `.gltf` (GL Transmission Format)
 
-Opzioni:
-  -i, --interactive     Chiede la descrizione interattivamente a terminale
-  -f, --file PATH       Legge la descrizione da un file .txt
-  -m, --model TEXT      Nome del modello Ollama da usare  [default: da settings.yaml]
-  -o, --output PATH     File JSON di output  [default: scene_objects.json]
-  -r, --retries INT     Numero massimo di tentativi  [default: 3]
-  --ollama-url TEXT     URL del server Ollama  [default: http://localhost:11434]
-  -v, --verbose         Output di debug dettagliato
-  -b, --blender         Lancia automaticamente Blender al termine
-  --render              Genera il render PNG (richiede --blender)
-  --render-output PATH  Percorso output PNG  [default: assets/renders/output.png]
-  --export-glb          Esporta la scena in formato .glb
-  --export-usdz         Esporta la scena in formato .usdz
-  --export-output PATH  Percorso base per l'export 3D
-  --help                Mostra questo messaggio ed esce
-```
+The system supports parsing dimensional metadata from GLB files to compute accurate object bounding boxes.
 
-### `python scripts/run_pipeline.py`
+### Default Asset Library
 
-```
-Utilizzo: python scripts/run_pipeline.py [OPZIONI] [DESCRIZIONE]
-
-Opzioni:
-  -i, --interactive     Chiede la descrizione interattivamente a terminale
-  -f, --file PATH       Legge la descrizione da un file .txt
-  -m, --model TEXT      Nome del modello Ollama  [default: llama3]
-  -o, --output PATH     File JSON di output  [default: scene_objects.json]
-  -r, --retries INT     Numero massimo di tentativi  [default: 3]
-  --ollama-url TEXT     URL del server Ollama  [default: http://localhost:11434]
-  -v, --verbose         Output di debug dettagliato
-  --help                Mostra questo messaggio ed esce
-```
-
-### `blender --background --python scripts/blender_runner.py`
-
-```
-Utilizzo: blender --background --python scripts/blender_runner.py -- [OPZIONI] JSON_PATH
-
-Argomenti posizionali:
-  JSON_PATH             Percorso al file JSON generato dalla pipeline
-
-Opzioni:
-  --render PATH         Abilita il render e salva il PNG nel percorso specificato
-  --no-render           Disabilita il render (costruisce solo la scena)
-```
-
-### Comandi Makefile
-
-```
-install              Installa le dipendenze di produzione
-install-dev          Installa tutte le dipendenze, incluse quelle di sviluppo
-lint                 Esegue ruff linter su src/, tests/, scripts/
-format               Formatta il codice con black e ruff --fix
-type-check           Controllo statico dei tipi con mypy
-test                 Esegue la suite di test con pytest
-test-cov             Esegue i test con report di coverage HTML in htmlcov/
-coverage-open        Apre il report coverage nel browser
-ollama-start         Avvia il server Ollama in background
-ollama-pull          Scarica il modello specificato (default: llama3)
-ollama-status        Mostra i modelli disponibili nel server locale
-pipeline             Esegue la pipeline in modalità interattiva
-demo                 Esecuzione rapida con descrizione hardcoded di esempio
-blender-run          Avvia Blender con lo script di costruzione scena
-blender-render       Avvia Blender con costruzione scena e render PNG
-generate-primitives  Genera asset 3D primitivi con Blender
-check-assets         Verifica lo stato della libreria di asset
-asset-report         Genera report JSON degli asset
-cli-check            Verifica prerequisiti via CLI
-cli-info             Mostra configurazione via CLI
-cli-demo             Demo completa via comando computer-graphics
-cli-validate         Valida il JSON di output corrente
-docker-build         Costruisce l'immagine Docker
-docker-up            Avvia tutti i servizi con Docker Compose
-docker-down          Ferma i servizi Docker
-docker-logs          Mostra i log dei container in tempo reale
-clean                Rimuove file temporanei, cache e artefatti di build
-```
-
----
-
-### Asset 3D
-
-La directory `assets/models/` deve contenere i modelli 3D. Il sistema indicizza i file in modo ricorsivo e utilizza un modello di ricerca basato su TF-IDF con pesi IDF per trovare l'asset più simile alla query testuale.
-
-1. `.obj` (Wavefront OBJ)
-2. `.fbx` (Autodesk FBX)
-3. `.glb` / `.gltf` (GL Transmission Format)
-
-Il sistema supporta il parsing dei metadati dimensionali dai file GLB per calcolare i bounding box reali degli oggetti.
-
-| File asset | Oggetto | Dimensioni approssimative |
+| Asset file | Object | Approximate dimensions |
 |---|---|---|
-| `table.obj` | Tavolo | 1.5 × 0.9 × 0.75 m |
-| `chair.obj` | Sedia | 0.6 × 0.6 × 1.0 m |
-| `lamp.obj` | Lampada da terra | 0.4 × 0.4 × 1.8 m |
-| `desk.obj` | Scrivania | 1.6 × 0.8 × 0.75 m |
-| `sofa.obj` | Divano | 2.2 × 0.9 × 0.9 m |
-| `bookshelf.obj` | Libreria | 0.9 × 0.3 × 1.8 m |
+| `table.obj` | Table | 1.5 × 0.9 × 0.75 m |
+| `chair.obj` | Chair | 0.6 × 0.6 × 1.0 m |
+| `lamp.obj` | Floor lamp | 0.4 × 0.4 × 1.8 m |
+| `desk.obj` | Desk | 1.6 × 0.8 × 0.75 m |
+| `sofa.obj` | Sofa | 2.2 × 0.9 × 0.9 m |
+| `bookshelf.obj` | Bookshelf | 0.9 × 0.3 × 1.8 m |
 | `monitor.obj` | Monitor | 0.6 × 0.2 × 0.4 m |
-| `bed.obj` | Letto | 1.6 × 2.0 × 0.6 m |
-| `plant.obj` | Pianta in vaso | 0.5 × 0.5 × 1.0 m |
-| `cabinet.obj` | Armadio | 0.8 × 0.4 × 1.4 m |
-| `fridge.obj` | Frigorifero | 0.7 × 0.7 × 1.8 m |
-| `rug.obj` | Tappeto | 2.0 × 1.5 × 0.02 m |
+| `bed.obj` | Bed | 1.6 × 2.0 × 0.6 m |
+| `plant.obj` | Potted plant | 0.5 × 0.5 × 1.0 m |
+| `cabinet.obj` | Cabinet | 0.8 × 0.4 × 1.4 m |
+| `fridge.obj` | Fridge | 0.7 × 0.7 × 1.8 m |
+| `rug.obj` | Rug | 2.0 × 1.5 × 0.02 m |
 
-Se un asset non viene trovato, il sistema crea automaticamente un cubo proxy con materiale rosso semitrasparente e lo posiziona nelle coordinate previste. Questo comportamento permette di verificare il layout spaziale anche prima di disporre di tutti gli asset definitivi.
+If an asset is not found, the system automatically creates a semi-transparent red proxy cube at the expected coordinates. This allows the spatial layout to be verified before all final assets are available.
 
-Le dimensioni approssimative di ogni oggetto sono utilizzate dal modulo `scene_graph.py` per il calcolo dei bounding box e la risoluzione delle collisioni.
+Object dimensions are used by `scene_graph.py` for bounding box calculation and collision resolution.
 
-### Fonti gratuite
+### Free Asset Sources
 
-- [Poly Haven](https://polyhaven.com) — modelli in formato `.glb`, licenza CC0
-- [Sketchfab](https://sketchfab.com/features/free-3d-models) — vari formati, licenze miste
-- [BlendSwap](https://www.blendswap.com) — modelli nativi Blender
-- [OpenGameArt](https://opengameart.org) — modelli in formati aperti, licenze libere
+- [Poly Haven](https://polyhaven.com) — `.glb` models, CC0 license
+- [Sketchfab](https://sketchfab.com/features/free-3d-models) — various formats, mixed licenses
+- [BlendSwap](https://www.blendswap.com) — native Blender models
+- [OpenGameArt](https://opengameart.org) — open formats, free licenses
 
-I file binari degli asset non sono inclusi nel repository. Per repository con modelli di grandi dimensioni, si consiglia di utilizzare [Git LFS](https://git-lfs.com).
+Binary asset files are not included in the repository. For repositories with large model files, [Git LFS](https://git-lfs.com) is recommended.
 
-### Verifica e report della libreria
+### Asset Library Verification
 
 ```bash
-# Verifica quali asset sono presenti e quali mancano
+# Check which assets are present and which are missing
 python scripts/setup_assets.py check
 
-# Genera un report JSON completo con dimensioni e fonti suggerite
+# Generate a full JSON report with dimensions and suggested sources
 python scripts/setup_assets.py report --output asset_report.json
 ```
 
 ---
 
-## Sviluppo
+## Development
 
-### Workflow consigliato
+### Recommended Workflow
 
 ```bash
-# Attiva l'ambiente virtuale
+# Activate the virtual environment
 source .venv/bin/activate
 
-# Installa le dipendenze di sviluppo (se non già fatto)
+# Install development dependencies (if not already done)
 make install-dev
 
-# Installa i pre-commit hook
+# Install pre-commit hooks
 pre-commit install
 
-# Ciclo di sviluppo standard
-make lint          # Controlla lo stile del codice
-make format        # Applica formattazione automatica
-make type-check    # Controlla la correttezza dei tipi
-make test          # Esegue i test
-make test-cov      # Esegue i test con report di coverage
+# Standard development cycle
+make lint          # Check code style
+make format        # Apply automatic formatting
+make type-check    # Verify type correctness
+make test          # Run the test suite
+make test-cov      # Run tests with coverage report
 ```
 
-### Convenzioni di codice
+### Code Conventions
 
-Il progetto adotta le seguenti convenzioni:
+- **Formatter**: `black` with a maximum line length of 88 characters
+- **Linter**: `ruff` with rulesets `E`, `F`, `W`, `I`, `N`, `UP`, `ANN`, `B`, `C4`, `SIM`
+- **Type checking**: `mypy` in strict mode for all internal modules
+- **Docstrings**: Google style for all public methods
+- **Type annotations**: mandatory for all public functions
+- **Imports**: ordered with `isort` (integrated in ruff via ruleset `I`)
+- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) format (`feat:`, `fix:`, `docs:`, `test:`, etc.)
 
-- **Formattatore**: `black` con lunghezza riga massima di 88 caratteri
-- **Linter**: `ruff` con i ruleset `E`, `F`, `W`, `I`, `N`, `UP`, `ANN`, `B`, `C4`, `SIM`
-- **Type checking**: `mypy` in modalità strict per i moduli interni
-- **Docstring**: stile Google per tutti i metodi pubblici
-- **Annotazioni di tipo**: obbligatorie per tutte le funzioni pubbliche
-- **Import**: ordinati con `isort` (integrato in ruff con ruleset `I`)
-- **Commit**: formato [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `test:`, ecc.)
-
-I pre-commit hook verificano automaticamente queste convenzioni prima di ogni commit. Per eseguire i controlli manualmente su tutti i file:
+Pre-commit hooks enforce these conventions automatically before each commit. To run all checks manually:
 
 ```bash
 pre-commit run --all-files
 ```
 
-### Struttura dei moduli
+### Module Overview
 
-Ogni modulo corrisponde a una fase precisa della pipeline.
+Each module corresponds to a specific pipeline stage.
 
-I moduli nella directory `src/computer_graphics/blender/` dipendono da `bpy` e possono essere importati solo all'interno del processo Blender. Non importarli in contesti Python standard: causeranno un `ImportError`.
+Modules under `src/computer_graphics/blender/` depend on `bpy` and can only be imported inside a Blender process. Do not import them in a standard Python context — they will raise an `ImportError`.
 
-Il modulo `orchestrator.py` è il punto di coordinamento principale. Istanzia i componenti delle fasi 1–4.5, gestisce la logica di retry e produce la lista finale di `SceneObject` validati e posizionati senza collisioni. È il punto di ingresso raccomandato per l'utilizzo programmatico della pipeline.
+`orchestrator.py` is the main coordination point. It instantiates the Stage 1–4.5 components, manages the retry logic, and produces the final list of validated, collision-free `SceneObject` instances. It is the recommended entry point for programmatic use of the pipeline.
 
-Il modulo `scene_graph.py` implementa un sistema di layout spaziale con bounding box AABB (Axis-Aligned Bounding Box). Gli oggetti più grandi mantengono la posizione originale generata dal modello; gli oggetti più piccoli vengono spostati lungo la direzione di minima penetrazione in caso di sovrapposizione. Il sistema itera fino a convergenza o fino al numero massimo di iterazioni configurato.
+`scene_graph.py` implements a spatial layout system using Axis-Aligned Bounding Boxes (AABB). Larger objects retain the position generated by the model; smaller objects are displaced along the minimum penetration direction when an overlap is detected. The system iterates until convergence or until the configured maximum number of iterations is reached.
 
-Il modulo `config_loader.py` gestisce il caricamento della configurazione con fusione a priorità da `.env`, `settings.yaml` e valori di default. Espone un'interfaccia semplice tramite `ConfigLoader.load()` e `ConfigLoader.get("sezione", "chiave")`.
+`config_loader.py` handles priority-merged configuration loading from `.env`, `settings.yaml`, and default values. It exposes a simple interface via `ConfigLoader.load()` and `ConfigLoader.get("section", "key")`.
 
-### Aggiungere un nuovo tipo di oggetto
+### Adding a New Object Type
 
-Per aggiungere il supporto a un nuovo asset (es. `"wardrobe"`):
+To add support for a new asset (e.g. `"wardrobe"`):
 
-1. Aggiungere il nome in `KNOWN_ASSET_NAMES` in `src/computer_graphics/validator.py`
-2. Aggiungere le dimensioni reali in `OBJECT_DIMENSIONS` in `src/computer_graphics/scene_graph.py`
-3. Aggiungere la definizione geometrica in `ASSET_DEFINITIONS` in `scripts/generate_primitives.py`
-4. Aggiungere `wardrobe.obj` (o generarlo con `make generate-primitives`) in `assets/models/`
+1. Add the name to `KNOWN_ASSET_NAMES` in `src/computer_graphics/validator.py`.
+2. Add the real-world dimensions to `OBJECT_DIMENSIONS` in `src/computer_graphics/scene_graph.py`.
+3. Add the geometric definition to `ASSET_DEFINITIONS` in `scripts/generate_primitives.py`.
+4. Add `wardrobe.obj` (or generate it with `make generate-primitives`) to `assets/models/`.
 
 ---
 
-## Test
+## Testing
 
-### Esecuzione
+### Running Tests
 
 ```bash
-# Suite completa
+# Full test suite
 make test
 
-# Con report di coverage a terminale e HTML
+# With terminal and HTML coverage report
 make test-cov
 
-# Apre il report HTML nel browser
+# Open the HTML report in the browser
 make coverage-open
 
-# Solo un modulo specifico
+# A specific module
 pytest tests/test_json_parser.py -v
 
-# Solo una classe o un metodo
+# A specific class or method
 pytest tests/test_validator.py::TestValidateObjects::test_raises_on_empty_list -v
 
-# Con output di log dettagliato
+# With detailed log output
 pytest tests/ -v --log-cli-level=DEBUG
 ```
 
-### Organizzazione dei test
+### Test Organisation
 
-| File di test | Modulo testato | Tecnica principale |
+| Test file | Module under test | Main technique |
 |---|---|---|
-| `test_input_handler.py` | `input_handler.py` | Validazione, factory method, mock interattivo |
-| `test_prompt_builder.py` | `prompt_builder.py` | Struttura payload, caricamento prompt da file |
-| `test_ollama_client.py` | `ollama_client.py` | Mock HTTP con `responses`, health check |
-| `test_json_parser.py` | `json_parser.py` | Input puliti e sporchi, casi limite |
-| `test_validator.py` | `validator.py` | Validazione Pydantic, coercizione tipi |
-| `test_scene_graph.py` | `scene_graph.py` | AABB, rilevamento e risoluzione collisioni |
-| `test_orchestrator.py` | `orchestrator.py` | Test di integrazione con mock, logica retry |
+| `test_input_handler.py` | `input_handler.py` | Validation, factory methods, interactive mock |
+| `test_prompt_builder.py` | `prompt_builder.py` | Payload structure, prompt loading from file |
+| `test_ollama_client.py` | `ollama_client.py` | HTTP mock with `responses`, health check |
+| `test_json_parser.py` | `json_parser.py` | Clean and dirty inputs, edge cases |
+| `test_validator.py` | `validator.py` | Pydantic validation, type coercion |
+| `test_scene_graph.py` | `scene_graph.py` | AABB, collision detection and resolution |
+| `test_orchestrator.py` | `orchestrator.py` | Integration tests with mocks, retry logic |
 
-I moduli che dipendono da `bpy` (fase 5) non sono inclusi nella suite di test standard, poiché richiedono un processo Blender attivo. Devono essere testati manualmente o tramite uno script di smoke test eseguito all'interno di Blender.
+Modules that depend on `bpy` (Stage 5) are not included in the standard test suite, as they require an active Blender process. They must be tested manually or via a smoke test script executed inside Blender.
 
-### Fixture
+### Fixtures
 
-Le fixture condivise sono definite in `tests/conftest.py` e includono:
+Shared fixtures are defined in `tests/conftest.py`:
 
-- `sample_clean_json`: output JSON ideale del modello, pronto per il parsing
-- `sample_dirty_text`: testo con backtick markdown, commenti JavaScript e virgole finali (caso reale frequente)
-- `valid_objects_list`: lista di dizionari già normalizzati per i test del validator
-- `mock_ollama_response`: struttura JSON simulata della risposta HTTP di Ollama
+- `sample_clean_json`: ideal model JSON output, ready for parsing
+- `sample_dirty_text`: text with markdown backticks, JavaScript comments, and trailing commas (a common real-world case)
+- `valid_objects_list`: list of normalised dictionaries for validator tests
+- `mock_ollama_response`: simulated JSON structure of an Ollama HTTP response
 
-I file in `tests/fixtures/` contengono esempi reali di output del modello usati nei test parametrizzati.
+Files in `tests/fixtures/` contain real model output examples used in parametrized tests.
 
 ---
 
 ## Docker
 
-### Modalità senza Blender (solo pipeline LLM)
+### Without Blender (LLM Pipeline Only)
 
-L'immagine `docker/Dockerfile` esegue esclusivamente le fasi 1–4.5 della pipeline. Blender non è incluso nell'immagine per ragioni di dimensione; il file JSON prodotto deve essere poi utilizzato con un'installazione locale di Blender.
+The `docker/Dockerfile` runs only Stages 1–4.5 of the pipeline. Blender is not included in the image due to its size; the produced JSON file must then be used with a local Blender installation.
 
 ```bash
-# Build dell'immagine
+# Build the image
 make docker-build
 
-# Esecuzione con descrizione come argomento
+# Run with a description as argument
 docker run --rm \
   -v $(pwd)/assets:/app/assets \
   -v $(pwd)/output:/app/output \
   --add-host=host.docker.internal:host-gateway \
   computer-graphics:latest \
-  "una stanza con tavolo e sedia" \
+  "a room with a table and a chair" \
   --output /app/output/scene_objects.json
 ```
 
-### Docker Compose (pipeline completa + Ollama containerizzato)
+### Docker Compose (Full Pipeline + Containerised Ollama)
 
-Il file `docker-compose.yml` definisce due servizi:
+`docker-compose.yml` defines two services:
 
-- `ollama`: server Ollama in container con supporto GPU opzionale (NVIDIA)
-- `computer-graphics`: pipeline Python che dipende dal servizio `ollama`
+- `ollama`: Ollama server in a container with optional GPU support (NVIDIA)
+- `computer-graphics`: Python pipeline depending on the `ollama` service
 
 ```bash
-# Avvia tutti i servizi
+# Start all services
 make docker-up
 
-# Log di entrambi i servizi in tempo reale
+# Stream live logs for both services
 make docker-logs
 
-# Ferma e rimuove i container
+# Stop and remove the containers
 make docker-down
 ```
 
-Il volume `ollama_data` è persistente: i modelli scaricati sopravvivono al riavvio dei container e non devono essere riscaricati.
+The `ollama_data` volume is persistent: downloaded models survive container restarts and do not need to be re-downloaded.
 
-L'`entrypoint.sh` attende automaticamente che Ollama sia pronto prima di avviare la pipeline, scarica il modello se non è già disponibile nel volume, e gestisce gli errori in modo pulito.
+`entrypoint.sh` automatically waits for Ollama to be ready before starting the pipeline, downloads the model if it is not already present in the volume, and handles errors cleanly.
 
-Per abilitare il supporto GPU NVIDIA, verificare che `nvidia-container-toolkit` sia installato sull'host. La configurazione nel `docker-compose.yml` è già predisposta con la sezione `deploy.resources.reservations.devices`.
+To enable NVIDIA GPU support, ensure `nvidia-container-toolkit` is installed on the host. The `deploy.resources.reservations.devices` section in `docker-compose.yml` is already configured for this.
 
 ---
 
 ## CI/CD
 
-Il repository include workflow GitHub Actions per integrazione continua e distribuzione.
+### `ci.yml` — Continuous Integration
 
-### `ci.yml` — Integrazione continua
+Runs on every push and pull request to `main` and `develop`. Consists of four parallel jobs:
 
-Eseguito su ogni push e pull request verso `main` e `develop`. Comprende quattro job paralleli:
+- **lint**: runs `ruff`, `black --check`, and `mypy` on Python 3.11 (Ubuntu)
+- **test**: runs pytest with coverage on a matrix of 9 combinations (3 OS × 3 Python versions: 3.10, 3.11, 3.12); the coverage report is uploaded to Codecov
+- **security**: runs `bandit` for static security analysis and `pip-audit` to check for known vulnerabilities in dependencies
+- **coverage-report**: coverage gate with a configurable minimum threshold; blocks merge if coverage falls below it
 
-- **lint**: esegue `ruff`, `black --check` e `mypy` su Python 3.11 (Ubuntu)
-- **test**: esegue pytest con coverage su una matrice di 9 combinazioni (3 OS × 3 versioni Python: 3.10, 3.11, 3.12). Il report di coverage viene caricato su Codecov
-- **security**: esegue `bandit` per l'analisi statica della sicurezza e `pip-audit` per il controllo delle dipendenze con vulnerabilità note
-- **coverage-report**: gate di coverage con soglia minima configurata; blocca il merge se la copertura scende sotto la soglia
+The workflow uses `concurrency` with `cancel-in-progress: true` to avoid redundant runs on the same branch.
 
-Il workflow utilizza `concurrency` con `cancel-in-progress: true` per evitare run ridondanti sullo stesso branch.
+### `docker.yml` — Docker Image Build
 
-### `docker.yml` — Build immagine Docker
+Runs on pushes to `main` and on creation of semantic version tags (`v*`). Builds the Docker image and publishes it to the GitHub Container Registry (GHCR) with tags corresponding to the branch or version.
 
-Eseguito su push a `main` e su creazione di tag semantici (`v*`). Costruisce l'immagine Docker e la pubblica sul GitHub Container Registry (GHCR) con tag corrispondenti al branch o alla versione.
+### Local Pre-commit Hooks
 
-### Pre-commit hook locali
-
-I seguenti controlli vengono eseguiti localmente prima di ogni commit:
+The following checks run locally before each commit:
 
 - `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-json`, `check-toml`
-- `check-merge-conflict`, `check-added-large-files` (limite 10 MB)
+- `check-merge-conflict`, `check-added-large-files` (10 MB limit)
 - `debug-statements`, `detect-private-key`
-- `black` — formattazione
-- `ruff` — lint con fix automatico
-- `mypy` — type check con dipendenze di tipo aggiuntive
+- `black` — code formatting
+- `ruff` — linting with automatic fixes
+- `mypy` — type checking with additional type stubs
 
 ---
 
-## Risoluzione dei problemi
+## Troubleshooting
 
-### Il server Ollama non risponde
+### Ollama Server Not Responding
 
 ```
-OllamaConnectionError: Impossibile connettersi a Ollama su http://localhost:11434
+OllamaConnectionError: Unable to connect to Ollama at http://localhost:11434
 ```
 
-Verificare che il server sia attivo:
+Verify the server is running:
 
 ```bash
-# Controlla se il processo è in esecuzione
+# Check whether the process is active
 ps aux | grep "ollama serve"
 
-# Se non è attivo, avviarlo
+# If not active, start it
 ollama serve
 
-# Verifica la risposta
+# Verify the response
 curl http://localhost:11434/api/tags
 ```
 
-In alternativa, usare il comando integrato per la diagnostica completa:
+The built-in diagnostic command can also be used:
 
 ```bash
 computer-graphics check
 ```
 
-Se si utilizza Docker e il container non riesce a raggiungere Ollama sull'host, verificare che `--add-host=host.docker.internal:host-gateway` sia presente nel comando `docker run`, oppure che il servizio `ollama` sia definito in `docker-compose.yml`.
+If running in Docker and the container cannot reach Ollama on the host, verify that `--add-host=host.docker.internal:host-gateway` is present in the `docker run` command, or that the `ollama` service is defined in `docker-compose.yml`.
 
-### Il modello restituisce JSON non valido
+### Model Returns Invalid JSON
 
-Il parser implementa tre strategie di estrazione in cascata (parsing diretto, regex, pulizia aggressiva). Se tutte falliscono dopo `max_retries` tentativi, viene sollevata una `RuntimeError`.
+The parser implements three extraction strategies in cascade (direct parsing, regex, aggressive cleaning). If all strategies fail after `max_retries` attempts, a `RuntimeError` is raised.
 
-Possibili cause e soluzioni:
+Possible causes and solutions:
 
-- **Temperatura troppo alta**: abbassare `temperature` in `config/settings.yaml` (valore raccomandato: 0.1–0.2)
-- **Modello troppo piccolo**: usare `llama3` o `mistral` invece di modelli da 1–3B parametri
-- **Descrizione ambigua**: riformulare la descrizione in modo più esplicito, elencando gli oggetti uno per uno
-- **Timeout**: aumentare `OLLAMA_TIMEOUT` nel file `.env` se il modello impiega più di 180 secondi
+- **Temperature too high**: lower `temperature` in `config/settings.yaml` (recommended: 0.1–0.2)
+- **Model too small**: use `llama3` or `mistral` instead of 1–3B parameter models
+- **Ambiguous description**: rephrase the description more explicitly, listing objects one by one
+- **Timeout**: increase `OLLAMA_TIMEOUT` in `.env` if the model takes longer than 180 seconds
 
-Per diagnosticare il problema, abilitare il logging di debug:
-
-```bash
-python scripts/run_pipeline.py "descrizione" --verbose
-# oppure
-computer-graphics generate "descrizione" --verbose
-```
-
-### Asset non trovato
-
-```
-WARNING: Asset 'sofa' non trovato in assets/models. Creo proxy cubo.
-```
-
-Il sistema continua l'esecuzione creando un cubo proxy rosso semitrasparente. Per risolvere:
-
-1. Aggiungere il file `assets/models/sofa.obj` (o `.fbx`, `.glb`)
-2. Oppure eseguire `make generate-primitives` per generare un asset primitivo
-3. Verificare che il nome del file corrisponda esattamente al valore del campo `"name"` nel JSON
+To diagnose the issue, enable debug logging:
 
 ```bash
-# Visualizza un report completo degli asset presenti e mancanti
+python scripts/run_pipeline.py "description" --verbose
+# or
+computer-graphics generate "description" --verbose
+```
+
+### Asset Not Found
+
+```
+WARNING: Asset 'sofa' not found in assets/models. Creating proxy cube.
+```
+
+The system continues execution by creating a semi-transparent red proxy cube. To resolve:
+
+1. Add `assets/models/sofa.obj` (or `.fbx`, `.glb`).
+2. Alternatively, run `make generate-primitives` to generate a primitive asset.
+3. Verify that the filename exactly matches the value of the `"name"` field in the JSON.
+
+```bash
+# Display a full report of present and missing assets
 make check-assets
 ```
 
-### Errori di importazione Pydantic
+### Pydantic Import Error
 
 ```
 ImportError: cannot import name 'field_validator' from 'pydantic'
 ```
 
-Il progetto richiede Pydantic v2. Verificare la versione installata:
+The project requires Pydantic v2. Verify the installed version:
 
 ```bash
 python -c "import pydantic; print(pydantic.VERSION)"
 pip install "pydantic>=2.5.0"
 ```
 
-### Blender non trova i moduli del progetto
+### Blender Cannot Find Project Modules
 
 ```
 ModuleNotFoundError: No module named 'computer_graphics'
 ```
 
-Lo script `blender_runner.py` aggiunge automaticamente `src/` al `sys.path`. Se il problema persiste, verificare che lo script venga eseguito dalla root del repository:
+`blender_runner.py` automatically adds `src/` to `sys.path`. If the error persists, verify that the script is run from the repository root:
 
 ```bash
-# Corretto: percorso relativo alla root
+# Correct: relative path from the root
 blender --background --python scripts/blender_runner.py -- scene_objects.json
 
-# Errato: esecuzione da un'altra directory
+# Incorrect: running from a subdirectory
 cd scripts && blender --background --python blender_runner.py -- ../scene_objects.json
 ```
 
 ---
 
-## Struttura del JSON di output
+## Output JSON Structure
 
-Il file JSON prodotto dalla pipeline (default: `scene_objects.json`) contiene un array di oggetti con la seguente struttura:
+The JSON file produced by the pipeline (default: `scene_objects.json`) contains an array of objects with the following structure:
 
 ```json
 [
@@ -1173,18 +1297,18 @@ Il file JSON prodotto dalla pipeline (default: `scene_objects.json`) contiene un
 ]
 ```
 
-| Campo | Tipo | Descrizione |
+| Field | Type | Description |
 |---|---|---|
-| `name` | string | Nome dell'oggetto in inglese minuscolo, corrisponde al nome del file asset |
-| `x` | float | Posizione sull'asse X in unità Blender (1 unità = 1 metro) |
-| `y` | float | Posizione sull'asse Y in unità Blender |
-| `z` | float | Posizione sull'asse Z (0.0 = livello del pavimento) |
-| `rot_x` | float | Rotazione attorno all'asse X in radianti |
-| `rot_y` | float | Rotazione attorno all'asse Y in radianti |
-| `rot_z` | float | Rotazione attorno all'asse Z in radianti |
-| `scale` | float | Fattore di scala uniforme (1.0 = dimensioni originali dell'asset) |
+| `name` | string | Object name in lowercase English; must match the asset filename |
+| `x` | float | Position on the X axis in Blender units (1 unit = 1 metre) |
+| `y` | float | Position on the Y axis in Blender units |
+| `z` | float | Position on the Z axis (0.0 = floor level) |
+| `rot_x` | float | Rotation around the X axis in radians |
+| `rot_y` | float | Rotation around the Y axis in radians |
+| `rot_z` | float | Rotation around the Z axis in radians |
+| `scale` | float | Uniform scale factor (1.0 = original asset dimensions) |
 
-Il file JSON può essere modificato manualmente prima di passarlo a Blender per aggiustamenti fini del layout. Può essere validato con:
+The JSON file can be edited manually before passing it to Blender for fine layout adjustments, and validated with:
 
 ```bash
 computer-graphics validate scene_objects.json
@@ -1192,6 +1316,6 @@ computer-graphics validate scene_objects.json
 
 ---
 
-## Licenza
+## License
 
-Questo progetto è distribuito sotto licenza MIT. Consultare il file [LICENSE](LICENSE) per il testo completo.
+This project is distributed under the MIT License. See the [LICENSE](LICENSE) file for the full text.

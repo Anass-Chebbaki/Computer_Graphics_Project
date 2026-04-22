@@ -22,7 +22,7 @@ services:
       python scripts/run_pipeline.py
       "una stanza con tavolo, sedia e lampada"
       --output /app/output/scene_objects.json
-      --model llama3
+      --model ${OLLAMA_MODEL}
 
   # Server Ollama locale
   ollama:

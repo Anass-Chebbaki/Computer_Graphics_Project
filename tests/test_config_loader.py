@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from computer_graphics.config_loader import (
     ConfigLoader,
     _deep_merge,
@@ -137,8 +136,13 @@ class TestConfigLoaderLoad:
             "ollama:\n  model: custom_model\n  url: http://custom:11434\n",
             encoding="utf-8",
         )
-        cfg = ConfigLoader.load(config_path=yaml_file, force_reload=True)
-        assert cfg["ollama"]["model"] == "custom_model"
+        # Isola il test dall'ambiente e dal file .env reale
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "computer_graphics.config_loader._load_dotenv"
+        ):
+            cfg = ConfigLoader.load(config_path=yaml_file, force_reload=True)
+            assert cfg["ollama"]["model"] == "custom_model"
+            assert cfg["ollama"]["url"] == "http://custom:11434"
         ConfigLoader.invalidate_cache()
 
     def test_missing_yaml_uses_defaults(self, tmp_path: Path) -> None:
