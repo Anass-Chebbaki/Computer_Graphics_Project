@@ -30,6 +30,8 @@ Ogni elemento dell'array rappresenta un oggetto 3D e deve contenere ESATTAMENTE 
 - "rot_y" : numero float, rotazione attorno all'asse Y in radianti
 - "rot_z" : numero float, rotazione attorno all'asse Z in radianti
 - "scale" : numero float, scala uniforme dell'oggetto (1.0 = dimensione normale)
+- "parent" : stringa o null, nome dell'oggetto padre se gerarchico
+- "material_semantics" : stringa o null, tipo materiale (es. "wood", "glass", "metal")
 
 Vincoli spaziali:
 - Posiziona gli oggetti in modo realistico, evitando sovrapposizioni.
@@ -131,7 +133,7 @@ class PromptBuilder:
             Path(__file__).parent.parent.parent
             / "config"
             / "prompts"
-            / "system-prompt.txt"
+            / "system_prompt.txt"
         )
         if default_path.exists():
             return default_path.read_text(encoding="utf-8").strip()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -312,6 +313,7 @@ def _compute_optimal_camera_location(
 # ---------------------------------------------------------------------------
 
 _MATERIALS_CONFIG: dict[str, Any] | None = None
+_materials_lock = threading.Lock()
 _MATERIALS_CONFIG_PATH = (
     Path(__file__).parent.parent.parent.parent / "config" / "materials.yaml"
 )
@@ -325,8 +327,9 @@ def _load_materials_config() -> dict[str, Any]:
         Dizionario vuoto se il file non esiste o non è leggibile.
     """
     global _MATERIALS_CONFIG  # noqa: PLW0603
-    if _MATERIALS_CONFIG is not None:
-        return _MATERIALS_CONFIG
+    with _materials_lock:
+        if _MATERIALS_CONFIG is not None:
+            return _MATERIALS_CONFIG
 
     try:
         import yaml  # noqa: PLC0415
@@ -334,21 +337,30 @@ def _load_materials_config() -> dict[str, Any]:
         if _MATERIALS_CONFIG_PATH.exists():
             with _MATERIALS_CONFIG_PATH.open(encoding="utf-8") as fh:
                 data = yaml.safe_load(fh) or {}
-            _MATERIALS_CONFIG = data.get("materials", {})
+            with _materials_lock:
+                _MATERIALS_CONFIG = data.get("materials", {})
             logger.debug(
                 "Configurazione materiali caricata da: %s", _MATERIALS_CONFIG_PATH
             )
         else:
-            logger.debug(
-                "File materials.yaml non trovato in %s; uso parametri hardcoded.",
-                _MATERIALS_CONFIG_PATH,
-            )
-            _MATERIALS_CONFIG = {}
+            with _materials_lock:
+                _MATERIALS_CONFIG = {}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Errore lettura materials.yaml: %s", exc)
-        _MATERIALS_CONFIG = {}
+        logger.warning(
+            "Errore durante il caricamento di %s: %s", _MATERIALS_CONFIG_PATH, exc
+        )
+        with _materials_lock:
+            _MATERIALS_CONFIG = {}
 
-    return _MATERIALS_CONFIG
+    with _materials_lock:
+        return _MATERIALS_CONFIG
+
+
+def clear_materials_config_cache() -> None:
+    """Svuota la cache della configurazione dei materiali (utile per i test)."""
+    global _MATERIALS_CONFIG  # noqa: PLW0603
+    with _materials_lock:
+        _MATERIALS_CONFIG = None
 
 
 def _find_pbr_textures(
@@ -404,6 +416,7 @@ def _apply_procedural_material(
     obj: object,
     material_semantics: str,
     assets_dir: Path | None = None,
+    color_override: tuple[float, float, float] | None = None,
 ) -> None:
     """Applica uno shader procedurale PBR all'oggetto in base alla semantica.
 
@@ -505,6 +518,36 @@ def _apply_procedural_material(
     if assets_dir is not None:
         pbr = _find_pbr_textures(sem, assets_dir)
         _link_pbr_textures(nodes, links, bsdf, pbr)
+
+    # ---- Override Colore ----
+    if color_override:
+        color_socket = bsdf.inputs["Base Color"]
+        # Se c'è già un link (texture o ramp), lo misceliamo
+        if color_socket.is_linked:
+            # Creiamo un nodo Mix (Mix Color in Blender 4.0)
+            mix_node = nodes.new("ShaderNodeMix")
+            try:
+                # Blender 4.0+ syntax
+                mix_node.data_type = "RGBA"  # type: ignore[attr-defined]
+                mix_node.blend_type = "MIX"  # type: ignore[attr-defined]
+                mix_node.inputs[0].default_value = 0.5  # Factor # type: ignore[index]
+
+                old_link = color_socket.links[0]
+                source_output = old_link.from_socket
+                links.new(source_output, mix_node.inputs[6])  # A # type: ignore[index]
+                mix_node.inputs[7].default_value = (
+                    *color_override,
+                    1.0,
+                )  # B # type: ignore[index]
+                links.new(
+                    mix_node.outputs[2], color_socket
+                )  # Result # type: ignore[index]
+            except (AttributeError, KeyError, IndexError):
+                # Fallback per versioni più vecchie o se la struttura differisce
+                # In caso di errore, applichiamo semplicemente l'override
+                color_socket.default_value = (*color_override, 1.0)
+        else:
+            color_socket.default_value = (*color_override, 1.0)
 
     if hasattr(obj, "data") and hasattr(obj.data, "materials"):  # type: ignore[attr-defined]
         obj.data.materials.append(mat)  # type: ignore[attr-defined]
@@ -658,7 +701,8 @@ def import_asset(
     name: str,
     assets_dir: str | Path,
     material_semantics: str | None = None,
-    similarity_threshold: float = 0.1,
+    color_override: tuple[float, float, float] | None = None,
+    similarity_threshold: float = 0.45,
 ) -> object:
     """Importa un modello 3D dalla libreria locale con ricerca semantica.
 
@@ -676,7 +720,8 @@ def import_asset(
         name: Nome normalizzato dell'asset (es. ``"table"``).
         assets_dir: Percorso alla directory degli asset.
         material_semantics: Semantica del materiale per shader procedurale.
-        similarity_threshold: Soglia cosine similarity per il RAG (default 0.1).
+        color_override: Override del colore RGB per il materiale procedurale.
+        similarity_threshold: Soglia cosine similarity per il RAG (default 0.45).
 
     Returns:
         Riferimento all'oggetto Blender importato o al proxy.
@@ -699,7 +744,10 @@ def import_asset(
         blender_obj = _import_file(str(found_path), name, found_path.suffix)
         if blender_obj is not None:
             _maybe_apply_semantic_material(
-                blender_obj, material_semantics, is_proxy=False
+                blender_obj,
+                material_semantics,
+                is_proxy=False,
+                color_override=color_override,
             )
             return blender_obj
 
@@ -711,7 +759,9 @@ def import_asset(
         similarity_threshold,
     )
     proxy = _create_proxy(name)
-    _maybe_apply_semantic_material(proxy, material_semantics, is_proxy=True)
+    _maybe_apply_semantic_material(
+        proxy, material_semantics, is_proxy=True, color_override=color_override
+    )
     return proxy
 
 
@@ -720,6 +770,7 @@ def _maybe_apply_semantic_material(
     material_semantics: str | None,
     *,
     is_proxy: bool,
+    color_override: tuple[float, float, float] | None = None,
 ) -> None:
     """
     Applica il materiale procedurale se opportuno .
@@ -733,6 +784,7 @@ def _maybe_apply_semantic_material(
         obj: Oggetto Blender target.
         material_semantics: Semantica del materiale o None.
         is_proxy: True se l'oggetto è un proxy cubo (asset mancante).
+        color_override: Override del colore RGB.
     """
     if material_semantics is None:
         return
@@ -744,7 +796,9 @@ def _maybe_apply_semantic_material(
     )
 
     if is_proxy or not has_materials:
-        _apply_procedural_material(obj, material_semantics)
+        _apply_procedural_material(
+            obj, material_semantics, color_override=color_override
+        )
 
 
 def _import_file(
@@ -809,7 +863,11 @@ def _create_proxy(name: str) -> object:
     # dei materiali se material_semantics è fornita
     mat = bpy.data.materials.new(name=f"ProxyMat_{name}")
     mat.use_nodes = True
-    principled = mat.node_tree.nodes["Principled BSDF"]
+    nodes = mat.node_tree.nodes
+    nodes.clear()
+    principled = nodes.new("ShaderNodeBsdfPrincipled")
+    output = nodes.new("ShaderNodeOutputMaterial")
+    mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
     principled.inputs["Base Color"].default_value = (1.0, 0.1, 0.1, 1.0)
     principled.inputs["Alpha"].default_value = 0.5
     mat.blend_method = "BLEND"
@@ -865,7 +923,7 @@ def place_object(
 # Gestione delle relazioni gerarchiche tra gli oggetti importati
 # ---------------------------------------------------------------------------
 def _apply_parent_relationships(
-    name_to_blender: dict[str, object],
+    name_to_blender: dict[str, Any],
     objects_data: list[dict[str, object]],
 ) -> None:
     """
@@ -909,19 +967,10 @@ def _apply_parent_relationships(
             )
             continue
 
-        # Deseleziona tutto, seleziona figlio e parent, applica parent
-        bpy.ops.object.select_all(action="DESELECT")
-        child_obj.select_set(True)  # type: ignore[attr-defined]
-        parent_obj.select_set(True)  # type: ignore[attr-defined]
-        bpy.context.view_layer.objects.active = parent_obj  # type: ignore[assignment]
-
-        # keep_transform=False: le coordinate sono già relative al parent
-        bpy.ops.object.parent_set(type="OBJECT", keep_transform=False)
+        # Imposta direttamente la parentela senza usare bpy.ops
+        child_obj.parent = parent_obj
 
         logger.debug("Gerarchia: '%s'.parent = '%s'.", child_name, parent_name)
-
-    # Deseleziona tutto alla fine
-    bpy.ops.object.select_all(action="DESELECT")
 
 
 # ---------------------------------------------------------------------------
@@ -977,12 +1026,20 @@ def snap_objects_to_surface(
                     z_bottom_offset = obj.location.z - min(world_zs)  # type: ignore[attr-defined]
 
             # Lancia il raggio verso il basso escludendo l'oggetto stesso
-            hit, location, _normal, _index, _hit_obj, _matrix = scene.ray_cast(
-                depsgraph,
-                origin,
-                direction,
-                distance=ray_distance,
-            )
+            current_origin = origin.copy()
+            hit = True
+            while hit:
+                hit, location, _normal, _index, _hit_obj, _matrix = scene.ray_cast(
+                    depsgraph,
+                    current_origin,
+                    direction,
+                    distance=ray_distance,
+                )
+                if hit and _hit_obj == obj:
+                    current_origin = location.copy()
+                    current_origin.z -= 0.001
+                else:
+                    break
 
             if hit:
                 # Posiziona l'oggetto in modo che il fondo tocchi la superficie
@@ -1012,6 +1069,95 @@ def snap_objects_to_surface(
 
 # Alias per retrocompatibilità con codice esistente che chiama apply_physics_settling
 apply_physics_settling = snap_objects_to_surface
+
+
+def _create_room_geometry(imported_objects: list[Any]) -> None:
+    """Genera pavimento e pareti basandosi sul bounding box degli oggetti."""
+    if not imported_objects:
+        return
+
+    global_min = [float("inf")] * 3
+    global_max = [float("-inf")] * 3
+    found = False
+
+    for obj in imported_objects:
+        if obj.type == "MESH":
+            for corner in obj.bound_box:
+                world_corner = obj.matrix_world @ mathutils.Vector(corner)
+                for i in range(3):
+                    global_min[i] = min(global_min[i], world_corner[i])
+                    global_max[i] = max(global_max[i], world_corner[i])
+            found = True
+
+    if not found:
+        return
+
+    from computer_graphics.config_loader import ConfigLoader
+
+    margin = ConfigLoader.get("room_mode", "margin", default=2.0)
+    wall_height = ConfigLoader.get("room_mode", "wall_height", default=3.0)
+    ceiling = ConfigLoader.get("room_mode", "ceiling", default=False)
+
+    min_x = global_min[0] - margin
+    max_x = global_max[0] + margin
+    min_y = global_min[1] - margin
+    max_y = global_max[1] + margin
+
+    width = max_x - min_x
+    depth = max_y - min_y
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+
+    import bpy
+
+    # Floor
+    bpy.ops.mesh.primitive_plane_add(size=1, location=(center_x, center_y, 0))
+    floor = bpy.context.object
+    floor.name = "Room_Floor"
+    floor.scale = (width, depth, 1)
+
+    # Walls
+    walls_data = [
+        (
+            "Wall_N",
+            (center_x, max_y, wall_height / 2),
+            (width, wall_height),
+            (math.radians(90), 0, 0),
+        ),
+        (
+            "Wall_S",
+            (center_x, min_y, wall_height / 2),
+            (width, wall_height),
+            (math.radians(90), 0, 0),
+        ),
+        (
+            "Wall_E",
+            (max_x, center_y, wall_height / 2),
+            (depth, wall_height),
+            (math.radians(90), 0, math.radians(90)),
+        ),
+        (
+            "Wall_W",
+            (min_x, center_y, wall_height / 2),
+            (depth, wall_height),
+            (math.radians(90), 0, math.radians(90)),
+        ),
+    ]
+
+    for w_name, w_loc, w_scale, w_rot in walls_data:
+        bpy.ops.mesh.primitive_plane_add(size=1, location=w_loc, rotation=w_rot)
+        wall = bpy.context.object
+        wall.name = w_name
+        wall.scale = (w_scale[0], w_scale[1], 1)
+
+    if ceiling:
+        bpy.ops.mesh.primitive_plane_add(
+            size=1, location=(center_x, center_y, wall_height)
+        )
+        ceil = bpy.context.object
+        ceil.name = "Room_Ceiling"
+        ceil.scale = (width, depth, 1)
+        ceil.rotation_euler = (math.radians(180), 0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1051,7 +1197,7 @@ def populate_scene(
     }
 
     # Mappa nome → oggetto Blender per la gerarchia
-    name_to_blender: dict[str, object] = {}
+    name_to_blender: dict[str, Any] = {}
     # Lista oggetti dati (dict) per il secondo passaggio di parentela
     all_objects_data: list[dict[str, object]] = []
     # Lista oggetti Blender importati con successo
@@ -1069,11 +1215,22 @@ def populate_scene(
         mat_sem_str: str | None = (
             str(material_semantics) if material_semantics else None
         )
+        # type: ignore[attr-defined]
+        color_override_val = data.get("color_override")
+        color_override_tuple: tuple[float, float, float] | None = None
+        if color_override_val and isinstance(color_override_val, (list, tuple)):
+            color_override_tuple = (
+                float(color_override_val[0]),
+                float(color_override_val[1]),
+                float(color_override_val[2]),
+            )
 
         all_objects_data.append(data)
 
         try:
-            blender_obj = import_asset(name, assets_dir, mat_sem_str)
+            blender_obj = import_asset(
+                name, assets_dir, mat_sem_str, color_override=color_override_tuple
+            )
 
             place_object(
                 blender_obj,
@@ -1099,18 +1256,24 @@ def populate_scene(
             logger.error("Errore durante import di '%s': %s", name, exc)
             results["skipped"].append(name)
 
-    # Applicazione delle relazioni di parentela gerarchica tra gli oggetti
-    logger.info("Applicazione gerarchia parent-child...")
-    _apply_parent_relationships(name_to_blender, all_objects_data)
-
     # Posizionamento istantaneo degli oggetti sulle superfici di supporto
     if enable_physics and imported_blender_objects:
         logger.info("Avvio surface snap via raycasting...")
         snap_objects_to_surface(imported_blender_objects)
 
+    # Applicazione delle relazioni di parentela gerarchica tra gli oggetti
+    logger.info("Applicazione gerarchia parent-child...")
+    _apply_parent_relationships(name_to_blender, all_objects_data)
+
     # Regolazione della telecamera per l'inquadratura ottimale della scena
     logger.info("Aggiornamento camera sul bounding box della scena...")
     setup_camera(imported_objects=imported_blender_objects)
+
+    from computer_graphics.config_loader import ConfigLoader
+
+    if ConfigLoader.get("room_mode", "enabled", default=False):
+        logger.info("Generazione automatica stanza (Room Mode)...")
+        _create_room_geometry(imported_blender_objects)
 
     # Configurazione dell'illuminazione semantica basata sul contesto
     setup_lighting(lights=lights)

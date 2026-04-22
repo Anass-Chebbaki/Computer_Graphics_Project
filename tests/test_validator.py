@@ -395,7 +395,7 @@ class TestValidatorAdditional:
         )
 
         with (
-            patch("computer_graphics.orchestrator.OllamaClient") as mock_client,
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
             patch("computer_graphics.orchestrator.PromptBuilder") as mock_builder,
             patch("computer_graphics.orchestrator.extract_json"),
             patch("computer_graphics.orchestrator.validate_objects") as mock_validate,
@@ -403,7 +403,7 @@ class TestValidatorAdditional:
                 "computer_graphics.orchestrator._apply_scene_graph_with_collision_check"
             ) as mock_sg,
         ):
-            mock_instance = mock_client.return_value
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = True
 
             # Prima volta: collisione, seconda volta: successo
@@ -441,16 +441,14 @@ class TestValidatorAdditional:
         """Test orchestrator verbose=True con health_check che fallisce."""
         from unittest.mock import patch
 
-        from computer_graphics.orchestrator import (
-            OllamaConnectionError,
-            generate_scene_objects,
-        )
+        from computer_graphics.llm_client import LLMConnectionError
+        from computer_graphics.orchestrator import generate_scene_objects
 
-        with patch("computer_graphics.orchestrator.OllamaClient") as mock_client:
-            mock_instance = mock_client.return_value
+        with patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client:
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = False
 
-            with pytest.raises(OllamaConnectionError):
+            with pytest.raises(LLMConnectionError):
                 generate_scene_objects("test scene", verbose=True)
 
     def test_orchestrator_verbose_mode_with_spinner(self) -> None:
@@ -460,7 +458,7 @@ class TestValidatorAdditional:
         from computer_graphics.orchestrator import generate_scene_objects
 
         with (
-            patch("computer_graphics.orchestrator.OllamaClient") as mock_client,
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
             patch("computer_graphics.orchestrator.PromptBuilder") as mock_builder,
             patch("computer_graphics.orchestrator.extract_json") as mock_extract,
             patch("computer_graphics.orchestrator.validate_objects") as mock_validate,
@@ -471,7 +469,7 @@ class TestValidatorAdditional:
                 "computer_graphics.orchestrator._print_results_table"
             ) as mock_print_table,
         ):
-            mock_instance = mock_client.return_value
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = True
             mock_instance.chat.return_value = (
                 '[{"name": "obj1", "x": 0, "y": 0, "z": 0, "scale": 1.0}]'
@@ -512,7 +510,7 @@ class TestValidatorAdditional:
         )
 
         with (
-            patch("computer_graphics.orchestrator.OllamaClient") as mock_client,
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
             patch("computer_graphics.orchestrator.PromptBuilder") as mock_builder,
             patch("computer_graphics.orchestrator.extract_json") as mock_extract,
             patch("computer_graphics.orchestrator.validate_objects") as mock_validate,
@@ -520,7 +518,7 @@ class TestValidatorAdditional:
                 "computer_graphics.orchestrator._apply_scene_graph_with_collision_check"
             ) as mock_sg,
         ):
-            mock_instance = mock_client.return_value
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = True
             json_payload = '[{"name": "obj1", "x": 0, "y": 0, "z": 0, "scale": 1.0}]'
             mock_instance.chat.side_effect = [
@@ -565,7 +563,7 @@ class TestValidatorAdditional:
         )
 
         with (
-            patch("computer_graphics.orchestrator.OllamaClient") as mock_client,
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
             patch("computer_graphics.orchestrator.PromptBuilder") as mock_builder,
             patch("computer_graphics.orchestrator.extract_json") as mock_extract,
             patch("computer_graphics.orchestrator.validate_objects") as mock_validate,
@@ -573,7 +571,7 @@ class TestValidatorAdditional:
                 "computer_graphics.orchestrator._apply_scene_graph_with_collision_check"
             ) as mock_sg,
         ):
-            mock_instance = mock_client.return_value
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = True
             mock_instance.chat.side_effect = [
                 "invalid json",
@@ -615,14 +613,14 @@ class TestValidatorAdditional:
         json_output = '[{"name": "table", "x": 0, "y": 0, "z": 0, "scale": 1.0}]'
 
         with (
-            patch("computer_graphics.orchestrator.OllamaClient") as mock_client,
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
             patch("computer_graphics.orchestrator.PromptBuilder") as mock_builder,
             patch(
                 "computer_graphics.orchestrator._apply_scene_graph_with_collision_check"
             ) as mock_sg,
             patch("computer_graphics.orchestrator._print_results_table"),
         ):
-            mock_instance = mock_client.return_value
+            mock_instance = mock_get_client.return_value
             mock_instance.health_check.return_value = True
             mock_instance.chat.return_value = json_output
 

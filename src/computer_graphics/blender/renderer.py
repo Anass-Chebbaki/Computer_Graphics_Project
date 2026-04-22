@@ -74,9 +74,25 @@ def render_scene(output_path: str | Path) -> Path:
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
+    from computer_graphics.config_loader import ConfigLoader
+
+    blender_cfg = ConfigLoader.get("blender", default={})
+    engine = blender_cfg.get("render_engine", "CYCLES")
+    res_x = blender_cfg.get("resolution_x", 1920)
+    res_y = blender_cfg.get("resolution_y", 1080)
+    samples = blender_cfg.get("samples", 64)
+
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    configure_render(output)
+
+    configure_render(
+        output,
+        resolution_x=res_x,
+        resolution_y=res_y,
+        samples=samples,
+        engine=engine,
+    )
+
     bpy.ops.render.render(write_still=True)
     logger.info("Render 2D completato: %s", output)
     return output

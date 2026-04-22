@@ -30,14 +30,14 @@ class TestInputHandlerFromString:
             InputHandler.from_string("a" * 2001).get_description()
 
     def test_exactly_min_length(self) -> None:
-        text = "a" * InputHandler.MIN_DESCRIPTION_LENGTH
+        text = "a" * 10
         handler = InputHandler.from_string(text)
-        assert len(handler.get_description()) == InputHandler.MIN_DESCRIPTION_LENGTH
+        assert len(handler.get_description()) == 10
 
     def test_exactly_max_length(self) -> None:
-        text = "a" * InputHandler.MAX_DESCRIPTION_LENGTH
+        text = "a" * 2000
         handler = InputHandler.from_string(text)
-        assert len(handler.get_description()) == InputHandler.MAX_DESCRIPTION_LENGTH
+        assert len(handler.get_description()) == 2000
 
 
 class TestInputHandlerFromFile:

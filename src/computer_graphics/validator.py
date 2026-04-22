@@ -165,8 +165,20 @@ class SceneObject(BaseModel):
             "Valori: 'wood', 'glass', 'fabric', 'metal', 'plastic', ecc."
         ),
     )
+    color_override: tuple[float, float, float] | None = Field(
+        default=None,
+        description="Colore RGB [0.0, 1.0] che sovrascrive quello del materiale base.",
+    )
 
     model_config = {"coerce_numbers_to_str": False}
+
+    @field_validator("color_override", mode="before")
+    @classmethod
+    def validate_color_override(cls, v: object) -> tuple[float, float, float] | None:
+        """Riutilizza la logica di validazione colore per l'override."""
+        if v is None:
+            return None
+        return LightObject.validate_color(v)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -226,6 +238,29 @@ class SceneObject(BaseModel):
                     value,
                     max_coord,
                 )
+
+        import math
+
+        for field_name, value in [
+            ("rot_x", self.rot_x),
+            ("rot_y", self.rot_y),
+            ("rot_z", self.rot_z),
+        ]:
+            if abs(value) > math.pi * 4:
+                logger.warning(
+                    "Oggetto '%s': rotazione %s=%.2f anomala "
+                    "(maggiore di due giri completi).",
+                    self.name,
+                    field_name,
+                    value,
+                )
+
+        if self.scale <= 0.0 or self.scale > 100.0:
+            logger.warning(
+                "Oggetto '%s': scala %.2f fuori scala (attesa 0 < scale <= 100).",
+                self.name,
+                self.scale,
+            )
         return self
 
     def suggest_asset_name(self) -> str:

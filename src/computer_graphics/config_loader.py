@@ -91,9 +91,9 @@ def _load_dotenv(env_path: Path) -> None:
             line = line.strip()  # noqa: PLW2901
             if not line or line.startswith("#") or "=" not in line:
                 continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
+            parts = line.split("=", 1)
+            key = parts[0].strip()
+            value = parts[1].strip().strip('"').strip("'")
             if key and key not in os.environ:
                 os.environ[key] = value
 
@@ -127,7 +127,9 @@ class ConfigLoader:
         _load_dotenv(project_root / ".env")
 
         # 2. Parte dalla configurazione di default
-        config = _DEFAULT_CONFIG.copy()
+        import copy
+
+        config = copy.deepcopy(_DEFAULT_CONFIG)
 
         # 3. Merge con settings.yaml
         yaml_path = Path(config_path) if config_path else _DEFAULT_CONFIG_PATH

@@ -9,22 +9,25 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 import requests
 from requests.exceptions import ConnectionError, ReadTimeout, RequestException
 
+from computer_graphics.llm_client import (
+    BaseLLMClient,
+)
+from computer_graphics.llm_client import (
+    LLMConnectionError as OllamaConnectionError,
+)
+from computer_graphics.llm_client import (
+    LLMResponseError as OllamaResponseError,
+)
+
 logger = logging.getLogger(__name__)
 
 
-class OllamaConnectionError(Exception):
-    """Sollevata quando Ollama non è raggiungibile."""
-
-
-class OllamaResponseError(Exception):
-    """Sollevata quando Ollama restituisce una risposta non valida."""
-
-
-class OllamaClient:
+class OllamaClient(BaseLLMClient):
     """
     Client per interagire con il server Ollama locale.
 
@@ -54,12 +57,13 @@ class OllamaClient:
     # Metodi pubblici
     # ------------------------------------------------------------------
 
-    def chat(self, payload: dict) -> str:
+    def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         """
         Invia una richiesta di chat al modello e restituisce il testo.
 
         Args:
-            payload: Dizionario compatibile con /api/chat di Ollama.
+            messages: Lista di messaggi (role, content).
+            **kwargs: Parametri come 'model', 'options', ecc.
 
         Returns:
             Stringa con il contenuto della risposta del modello.
@@ -69,6 +73,12 @@ class OllamaClient:
             OllamaResponseError: Se la risposta è malformata.
         """
         url = self.base_url + self.CHAT_ENDPOINT
+        payload = {"messages": messages, "stream": False, **kwargs}
+
+        # Supporto per Structured Output
+        if kwargs.get("response_format") == "json":
+            payload["format"] = "json"
+            kwargs.pop("response_format")
 
         for attempt in range(1, self.max_connection_retries + 1):
             try:
@@ -87,8 +97,17 @@ class OllamaClient:
                 )
                 response.raise_for_status()
 
-                data = response.json()
-                content = self._extract_content(data)
+                try:
+                    data = response.json()
+                    content = self._extract_content(data)
+                except ValueError:
+                    import json
+
+                    content = ""
+                    for line in response.text.strip().split("\n"):
+                        if line:
+                            chunk = json.loads(line)
+                            content += self._extract_content(chunk)
 
                 logger.debug("Risposta ricevuta (%d caratteri)", len(content))
                 return content
@@ -131,7 +150,7 @@ class OllamaClient:
         try:
             response = requests.get(
                 self.base_url + self.TAGS_ENDPOINT,
-                timeout=5,
+                timeout=min(30, self.timeout),
             )
             return bool(response.status_code == 200)
         except RequestException:

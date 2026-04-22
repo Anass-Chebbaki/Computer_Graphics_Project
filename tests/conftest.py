@@ -7,6 +7,14 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def clear_config_cache() -> None:
+    """Svuota la cache di ConfigLoader prima di ogni test."""
+    from computer_graphics.config_loader import ConfigLoader
+
+    ConfigLoader.invalidate_cache()
+
+
 @pytest.fixture()
 def sample_clean_json() -> str:
     """JSON pulito, output ideale del modello."""

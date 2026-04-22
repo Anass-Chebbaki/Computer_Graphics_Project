@@ -14,7 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from computer_graphics.json_parser import JSONParseError, extract_json
-from computer_graphics.ollama_client import OllamaClient, OllamaConnectionError
+from computer_graphics.llm_client import LLMConnectionError, get_llm_client
 from computer_graphics.prompt_builder import PromptBuilder
 from computer_graphics.validator import SceneObject, validate_objects
 
@@ -103,7 +103,8 @@ def _apply_scene_graph_with_collision_check(
 
     graph = SceneGraph()
     for obj in validated:
-        graph.add_object(obj)
+        if getattr(obj, "parent", None) is None:
+            graph.add_object(obj)
 
     # Esegue la risoluzione con il limite di iterazioni standard
     adjusted = graph.resolve_collisions(max_iterations=10)
@@ -193,19 +194,44 @@ def generate_scene_objects(
         RuntimeError: Se dopo max_retries non si ottiene JSON valido e
             privo di collisioni irrisolvibili.
     """
-    client = OllamaClient(base_url=ollama_url, timeout=timeout)
+    from computer_graphics.config_loader import ConfigLoader
+
+    ollama_cfg = ConfigLoader.get("ollama", default={})
+    max_conn_retries = ollama_cfg.get("max_connection_retries", 3)
+    conn_retry_delay = ollama_cfg.get("retry_delay", 2.0)
+
+    llm_provider = ConfigLoader.get("llm", "provider", default="ollama")
+
+    client_params = {
+        "timeout": timeout,
+        "max_connection_retries": max_conn_retries,
+        "retry_delay": conn_retry_delay,
+    }
+
+    if llm_provider == "ollama":
+        client_params["base_url"] = ollama_url
+    else:
+        # Per OpenAI/altri, carica da config avanzata
+        client_params["api_key"] = ConfigLoader.get("llm", "api_key", default="")
+        client_params["base_url"] = ConfigLoader.get("llm", "base_url", default="")
+
+    client = get_llm_client(llm_provider, **client_params)
     builder = PromptBuilder(model=model)
 
     # Verifica connessione Ollama
     if verbose:
         with console.status(
-            "[bold yellow]Verifica connessione Ollama...[/bold yellow]"
+            f"[bold yellow]Verifica connessione {llm_provider}...[/bold yellow]"
         ):
             if not client.health_check():
-                raise OllamaConnectionError(
-                    "Ollama non risponde. Avviare con: ollama serve"
-                )
-        console.print("[bold green]✓[/bold green] Ollama connesso.")
+                if llm_provider == "ollama":
+                    raise LLMConnectionError(
+                        "Ollama non risponde. Avviare con: ollama serve"
+                    )
+                raise LLMConnectionError(f"Provider {llm_provider} non risponde.")
+        console.print(
+            f"[bold green]✓[/bold green] {llm_provider.capitalize()} connesso."
+        )
 
     last_exception: Exception | None = None
 
@@ -220,40 +246,39 @@ def generate_scene_objects(
                 f"--- Generazione scena con modello [cyan]{model}[/cyan]"
             )
 
-        # Al primo tentativo costruisce il payload standard
-        # Ai tentativi successivi per collisioni, aggiunge feedback contestuale
         if not message_history:
             payload = builder.build(scene_description)
             # Inizializza la history con system + user message
             message_history = list(payload["messages"])
-        else:
-            # Mantieni la history esistente (ciclo agentico)
-            payload = {
-                "model": model,
-                "messages": message_history,
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,  # leggermente più alta per più varietà
-                    "top_p": 0.9,
-                    "num_predict": 1024,
-                },
-            }
 
         # Chiamata al modello con spinner
         try:
+            llm_options = ConfigLoader.get("ollama", "options", default={})
             if verbose:
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
                     console=console,
+                    transient=True,
                 ) as progress:
                     progress.add_task(
-                        description=f"Interrogazione {model}...", total=None
+                        description=(f"Interrogazione {model} via {llm_provider}..."),
+                        total=None,
                     )
-                    raw_text = client.chat(payload)
+                    raw_text = client.chat(
+                        messages=message_history,
+                        model=model,
+                        response_format="json",
+                        **llm_options,
+                    )
             else:
-                raw_text = client.chat(payload)
-        except OllamaConnectionError:
+                raw_text = client.chat(
+                    messages=message_history,
+                    model=model,
+                    response_format="json",
+                    **llm_options,
+                )
+        except LLMConnectionError:
             raise  # Gli errori di rete non si risolvono con retry sul JSON
 
         # Aggiunge la risposta del modello alla history (per il ciclo agentico)

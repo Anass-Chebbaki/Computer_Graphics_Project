@@ -108,25 +108,44 @@ class AssetIndex:
             logger.warning("AssetIndex: directory '%s' non trovata.", self._assets_dir)
             return
 
-        seen: set[str] = set()
+        seen_basenames: set[Path] = set()
         paths_to_index: list[Path] = []
 
         for ext in _SUPPORTED_EXTS:
             for p in self._assets_dir.rglob(f"*{ext}"):
-                stem = p.stem.lower()
-                if stem not in seen:
-                    seen.add(stem)
+                basename = p.with_suffix("")
+                if basename not in seen_basenames:
+                    seen_basenames.add(basename)
                     paths_to_index.append(p)
+
+        # Primo passaggio: calcola TF e frequenza dei documenti (DF)
+        temp_data: list[tuple[Path, str, dict[str, float], list[str]]] = []
+        doc_counts: dict[str, int] = {}
 
         for path in paths_to_index:
             stem = path.stem.lower()
             tokens = _tokenize(stem)
-            vec = _term_freq(tokens)
+            tf_vec = _term_freq(tokens)
+            temp_data.append((path, stem, tf_vec, tokens))
+
+            # Conta in quanti documenti appare ogni token (per IDF)
+            for t in tf_vec:
+                doc_counts[t] = doc_counts.get(t, 0) + 1
+
+        # Secondo passaggio: calcola pesi TF-IDF e costruisce l'indice
+        num_docs = len(paths_to_index)
+        for path, stem, tf_vec, tokens in temp_data:
+            tfidf_vec: dict[str, float] = {}
+            for t, tf in tf_vec.items():
+                # IDF = log(N / df) + 1
+                idf = math.log(num_docs / doc_counts[t]) + 1.0
+                tfidf_vec[t] = tf * idf
+
             self._index.append(
                 {
                     "name": stem,
                     "path": path,
-                    "vector": vec,
+                    "vector": tfidf_vec,
                     "tokens": tokens,
                 }
             )

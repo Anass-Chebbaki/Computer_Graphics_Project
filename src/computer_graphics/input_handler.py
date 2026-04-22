@@ -24,11 +24,13 @@ class InputHandler:
         - lettura da file .txt
     """
 
-    MIN_DESCRIPTION_LENGTH: int = 10
-    MAX_DESCRIPTION_LENGTH: int = 2000
-
     def __init__(self, description: str | None = None) -> None:
         self._description: str | None = description
+        from computer_graphics.config_loader import ConfigLoader
+
+        val_cfg = ConfigLoader.get("validation", default={})
+        self.min_length = val_cfg.get("min_description_length", 10)
+        self.max_length = val_cfg.get("max_description_length", 2000)
 
     # ------------------------------------------------------------------
     # Metodi pubblici
@@ -111,15 +113,15 @@ class InputHandler:
         """
         cleaned = " ".join(text.strip().split())
 
-        if len(cleaned) < self.MIN_DESCRIPTION_LENGTH:
+        if len(cleaned) < self.min_length:
             raise ValueError(
-                f"Descrizione troppo breve (min {self.MIN_DESCRIPTION_LENGTH} caratteri). "  # noqa: E501
+                f"Descrizione troppo breve (min {self.min_length} caratteri). "  # noqa: E501
                 f"Fornire più dettagli sulla scena desiderata."
             )
 
-        if len(cleaned) > self.MAX_DESCRIPTION_LENGTH:
+        if len(cleaned) > self.max_length:
             raise ValueError(
-                f"Descrizione troppo lunga (max {self.MAX_DESCRIPTION_LENGTH} caratteri). "  # noqa: E501
+                f"Descrizione troppo lunga (max {self.max_length} caratteri). "  # noqa: E501
                 f"Lunghezza attuale: {len(cleaned)} caratteri."
             )
 

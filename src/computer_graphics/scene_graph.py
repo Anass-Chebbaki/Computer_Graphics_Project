@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import math
 import struct
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ _DEFAULT_DIMENSION: tuple[float, float, float] = (0.8, 0.8, 1.0)
 
 # Cache delle dimensioni calcolate dai file mesh
 _mesh_dimensions_cache: dict[str, tuple[float, float, float]] = {}
+_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -151,14 +153,20 @@ def _parse_glb_dimensions(
     if magic != b"glTF":
         return None
 
-    # Chunk 0: length(4) + type(4) + data
-    chunk0_len = struct.unpack_from("<I", raw, 12)[0]
-    chunk0_type = raw[16:20]
-    if chunk0_type != b"JSON":
-        return None
+    # Iterate through chunks to find JSON chunk
+    offset = 12
+    gltf = None
+    while offset + 8 <= len(raw):
+        chunk_len = struct.unpack_from("<I", raw, offset)[0]
+        chunk_type = raw[offset + 4 : offset + 8]
+        if chunk_type == b"JSON":
+            json_bytes = raw[offset + 8 : offset + 8 + chunk_len]
+            gltf = _json.loads(json_bytes.decode("utf-8"))
+            break
+        offset += 8 + chunk_len
 
-    json_bytes = raw[20 : 20 + chunk0_len]
-    gltf = _json.loads(json_bytes.decode("utf-8"))
+    if gltf is None:
+        return None
 
     accessors = gltf.get("accessors", [])
     global_min = [float("inf")] * 3
@@ -205,8 +213,9 @@ def get_asset_dimensions(
     Returns:
         Tupla ``(width_x, depth_y, height_z)`` in unità Blender.
     """
-    if name in _mesh_dimensions_cache:
-        return _mesh_dimensions_cache[name]
+    with _cache_lock:
+        if name in _mesh_dimensions_cache:
+            return _mesh_dimensions_cache[name]
 
     if assets_dir is not None:
         for ext in (".obj", ".glb", ".gltf", ".fbx"):
@@ -219,13 +228,21 @@ def get_asset_dimensions(
                         name,
                         *dims,
                     )
-                    _mesh_dimensions_cache[name] = dims
+                    with _cache_lock:
+                        _mesh_dimensions_cache[name] = dims
                     return dims
 
     # Fallback statico
     dims = OBJECT_DIMENSIONS.get(name, _DEFAULT_DIMENSION)
-    _mesh_dimensions_cache[name] = dims
+    with _cache_lock:
+        _mesh_dimensions_cache[name] = dims
     return dims
+
+
+def clear_mesh_dimensions_cache() -> None:
+    """Svuota la cache delle dimensioni mesh (utile per i test)."""
+    with _cache_lock:
+        _mesh_dimensions_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +512,7 @@ class SceneGraph:
     def _resolve_pair(self, node_a: SceneNode, node_b: SceneNode) -> None:
         """Risolve la collisione tra due nodi spostando il più piccolo (node_b).
 
-        Usa la direzione centro-centro per calcolare lo spostamento minimo.
+        Usa la direzione di minima penetrazione (AABB) per lo spostamento.
 
         Args:
             node_a: Nodo fisso (più grande per area).
@@ -503,10 +520,7 @@ class SceneGraph:
         """
         dx = node_b.bbox.cx - node_a.bbox.cx
         dy = node_b.bbox.cy - node_a.bbox.cy
-        dist = math.sqrt(dx * dx + dy * dy)
 
-        # Stima della penetrazione lungo la direzione centro-centro
-        # usando le proiezioni AABB come approssimazione
         overlap_x = min(
             node_a.bbox.x_max - node_b.bbox.x_min,
             node_b.bbox.x_max - node_a.bbox.x_min,
@@ -516,14 +530,12 @@ class SceneGraph:
             node_b.bbox.y_max - node_a.bbox.y_min,
         )
 
-        if dist > 1e-6:
-            # Sposta lungo la direzione centro-centro della quantità necessaria
-            push = max(overlap_x, overlap_y) + self.safety_margin
-            node_b.bbox.cx += (dx / dist) * push
-            node_b.bbox.cy += (dy / dist) * push
+        if overlap_x < overlap_y:
+            sign = 1 if dx > 0 else -1
+            node_b.bbox.cx += sign * (overlap_x + self.safety_margin)
         else:
-            # Oggetti coincidenti: sposta lungo X
-            node_b.bbox.cx += overlap_x + self.safety_margin
+            sign = 1 if dy > 0 else -1
+            node_b.bbox.cy += sign * (overlap_y + self.safety_margin)
 
         node_b.adjusted = True
         node_b.conflicts_resolved += 1

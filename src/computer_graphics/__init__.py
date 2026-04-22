@@ -10,7 +10,7 @@ Pipeline:
 """
 
 __version__ = "1.0.0"
-__author__ = "Your Name"
+__author__ = "Computer_Graphics_Group"
 __license__ = "MIT"
 
 from computer_graphics.ollama_client import OllamaClient

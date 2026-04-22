@@ -22,6 +22,7 @@ Il progetto è progettato per funzionare interamente in locale, senza dipendenze
 - [Configurazione](#configurazione)
 - [Utilizzo](#utilizzo)
 - [Riferimento CLI](#riferimento-cli)
+- [Funzionalità avanzate](#funzionalità-avanzate)
 - [Asset 3D](#asset-3d)
 - [Sviluppo](#sviluppo)
 - [Test](#test)
@@ -57,8 +58,7 @@ Descrizione testuale (linguaggio naturale)
           │
           ▼
   [4] JSONParser + Validator
-      Estrazione robusta del JSON dalla risposta del modello
-      (parsing diretto, regex, pulizia aggressiva di markdown e commenti).
+      Estrazione del JSON dalla risposta del modello tramite bilanciamento delle parentesi.
       Validazione di ogni oggetto con Pydantic e coercizione dei tipi.
       ┌─────────────────────────────────────────────────┐
       │  Supporta oggetti della scena con:              │
@@ -73,17 +73,19 @@ Descrizione testuale (linguaggio naturale)
   [4.5] SceneGraph
       Sistema di layout spaziale basato su bounding box orientati (OBB).
       Calcola le intersezioni tra oggetti ruotati e risolve le sovrapposizioni
-      spostando gli elementi lungo la direzione centro-centro.
-      In caso di conflitti persistenti, fornisce feedback al modello
-      per la rigenerazione delle coordinate.
+      spostando gli elementi lungo l'asse di minima penetrazione (AABB SAT).
+      Filtra gli oggetti child per evitare conflitti spaziali ridondanti.
           │
           ▼
   [5] SceneBuilder + Renderer (Blender / bpy)
       Configurazione di luci, camera e ambiente (HDRI).
-      Importazione degli asset con allineamento alle superfici tramite raycasting.
-      Applicazione di materiali PBR (configurabili via YAML o texture locali).
+      Generazione automatica di pavimento e pareti (Room Mode).
+      Importazione degli asset con allineamento alle superfici via raycasting.
+      Applicazione di materiali PBR e gestione della gerarchia diretta.
       Esportazione in formati 2D (PNG) e 3D (GLB, USDZ).
 ```
+
+---
 
 Il formato JSON intermedio prodotto dal modello e consumato da Blender segue questo schema:
 
@@ -400,6 +402,12 @@ validation:
   min_description_length: 10
   max_description_length: 2000
   max_coordinate_value: 50.0
+
+room_mode:
+  enabled: true
+  margin: 2.0
+  wall_height: 3.0
+  ceiling: false
 ```
 
 ### Prompt di sistema
@@ -571,7 +579,27 @@ Per eseguire lo script direttamente dall'editor interno di Blender senza passare
 
 ---
 
-## Oggetti e funzionalità avanzate
+## Funzionalità avanzate
+ 
+### Generazione 2D Preview
+Per convalidare spazialmente il layout prima di passare a Blender, è possibile generare una vista zenitale 2D:
+```bash
+python -m computer_graphics.cli "una stanza con un tavolo e quattro sedie" --preview
+```
+Questo genererà un'immagine `preview.png` con i bounding box degli oggetti.
+
+### Supporto Multi-LLM
+Il sistema supporta swappable providers. È possibile configurare l'uso di Ollama o OpenAI nel file `settings.yaml`:
+```yaml
+llm:
+  provider: "openai" # oppure "ollama"
+  api_key: "your-key"
+  base_url: "https://api.openai.com/v1"
+```
+
+### Override del Colore
+Gli oggetti possono ricevere un override del colore RGB direttamente dal modello linguistico, che viene miscelato con il materiale procedurale scelto:
+- `color_override`: [R, G, B] (valori tra 0.0 e 1.0)
 
 ### Gerarchia parent-child
 
@@ -655,7 +683,7 @@ I parametri degli shader (metallic, roughness, IOR, ecc.) sono definiti in `conf
 
 ### Allineamento alle superfici (Surface Snap)
 
-Il sistema utilizza algoritmi di raycasting per rilevare le superfici sottostanti agli oggetti (pavimenti, ripiani, ecc.) e corregge automaticamente la coordinata Z per garantire il contatto fisico, evitando oggetti sospesi o compenetrati nelle basi.
+Il sistema utilizza algoritmi di raycasting per rilevare le superfici sottostanti agli oggetti (pavimenti, ripiani, ecc.) e corregge automaticamente la coordinata Z per garantire il contatto fisico. Il processo esclude l'auto-collisione dell'oggetto sorgente per evitare errori di posizionamento.
 
 Esempio:
 
@@ -778,15 +806,15 @@ clean                Rimuove file temporanei, cache e artefatti di build
 
 ---
 
-## Asset 3D
+### Asset 3D
 
-La directory `assets/models/` deve contenere i modelli 3D da importare nella scena. Il sistema cerca i file con il nome corrispondente all'oggetto generato dal modello LLM nei formati seguenti, in ordine di priorità:
+La directory `assets/models/` deve contenere i modelli 3D. Il sistema indicizza i file in modo ricorsivo e utilizza un modello di ricerca basato su TF-IDF con pesi IDF per trovare l'asset più simile alla query testuale.
 
 1. `.obj` (Wavefront OBJ)
 2. `.fbx` (Autodesk FBX)
 3. `.glb` / `.gltf` (GL Transmission Format)
 
-Il nome del file deve corrispondere esattamente al nome in inglese che il modello LLM restituisce nel campo `"name"` del JSON. Ad esempio, se il modello genera `"name": "table"`, il sistema cerca `assets/models/table.obj`.
+Il sistema supporta il parsing dei metadati dimensionali dai file GLB per calcolare i bounding box reali degli oggetti.
 
 | File asset | Oggetto | Dimensioni approssimative |
 |---|---|---|

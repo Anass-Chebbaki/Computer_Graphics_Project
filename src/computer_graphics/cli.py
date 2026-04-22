@@ -23,7 +23,7 @@ from rich.panel import Panel
 
 from computer_graphics.config_loader import ConfigLoader
 from computer_graphics.input_handler import InputHandler
-from computer_graphics.ollama_client import OllamaConnectionError
+from computer_graphics.llm_client import LLMConnectionError
 from computer_graphics.orchestrator import generate_scene_objects
 
 console = Console()
@@ -139,6 +139,17 @@ def main(ctx: click.Context) -> None:
         "L'estensione viene aggiunta automaticamente."
     ),
 )
+@click.option(
+    "--preview",
+    is_flag=True,
+    help="Genera una mappa 2D (PNG) del layout prima di Blender.",
+)
+@click.option(
+    "--preview-output",
+    default="assets/renders/preview.png",
+    show_default=True,
+    help="Percorso output PNG dell'anteprima 2D.",
+)
 def generate(  # noqa: PLR0913
     description: str | None,
     interactive: bool,
@@ -154,6 +165,8 @@ def generate(  # noqa: PLR0913
     export_glb: bool,
     export_usdz: bool,
     export_output: str,
+    preview: bool,
+    preview_output: str,
 ) -> None:
     """Genera una scena 3D da una descrizione in linguaggio naturale.
 
@@ -241,16 +254,11 @@ def generate(  # noqa: PLR0913
             model=effective_model,
             max_retries=effective_retries,
             ollama_url=effective_url,
-            verbose=True,
+            verbose=verbose,
         )
-    except OllamaConnectionError as exc:
+    except LLMConnectionError as exc:
         console_err.print(
-            f"[bold red]Errore connessione Ollama:[/bold red] {exc}",
-        )
-        console.print(
-            f"\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
-            f"[bold]ollama serve[/bold] e scaricare il modello con "
-            f"[bold]ollama pull {effective_model}[/bold]."
+            f"[bold red]Errore connessione LLM:[/bold red] {exc}",
         )
         raise SystemExit(1) from exc
     except RuntimeError as exc:
@@ -265,6 +273,29 @@ def generate(  # noqa: PLR0913
     output_data = [obj.model_dump() for obj in objects]
     with output_path.open("w", encoding="utf-8") as fp:
         _json.dump(output_data, fp, indent=2, ensure_ascii=False)
+
+    # Mostra tabella riassuntiva
+    from rich.table import Table as _Table  # noqa: PLC0415
+
+    table = _Table(
+        title="[bold]Riepilogo Scena Generata[/bold]",
+        box=None,
+        header_style="bold magenta",
+    )
+    table.add_column("Nome", style="cyan")
+    table.add_column("Posizione (X, Y, Z)", justify="right")
+    table.add_column("Materiale", style="green")
+    table.add_column("Parent", style="dim")
+
+    for obj in objects:
+        pos = f"({obj.x:.2f}, {obj.y:.2f}, {obj.z:.2f})"
+        table.add_row(obj.name, pos, obj.material_semantics or "-", obj.parent or "-")
+    console.print(table)
+
+    if preview:
+        from computer_graphics.preview import generate_2d_preview
+
+        generate_2d_preview(objects, preview_output)
 
     console.print(
         Panel(

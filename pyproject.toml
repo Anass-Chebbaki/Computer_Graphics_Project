@@ -9,7 +9,7 @@ description = "Pipeline automatizzata per la generazione di scene 3D da linguagg
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Your Name", email = "your@email.com" }
+    { name = "Computer_Graphics_Group"}
 ]
 keywords = ["blender", "3d", "nlp", "ollama", "scene-generation", "llm"]
 classifiers = [
@@ -31,6 +31,8 @@ dependencies = [
     "click>=8.1.7",
     "rich>=13.7.0",
     "pydantic>=2.5.0",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]

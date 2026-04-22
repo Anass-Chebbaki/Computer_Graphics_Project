@@ -85,17 +85,46 @@ def _try_direct_parse(text: str) -> list[dict] | None:
 
 def _try_regex_extract(text: str) -> list[dict] | None:
     """
-    Estrae l'array JSON usando regex.
+    Estrae l'array JSON bilanciando le parentesi quadre.
     Gestisce JSON multi-riga e preceduto/seguito da testo.
     """
-    # Pattern: primo [ ... ultimo ] con tutto in mezzo (DOTALL)
-    pattern = re.compile(r"\[.*\]", re.DOTALL)
-    match = pattern.search(text)
-
-    if not match:
+    start_idx = text.find("[")
+    if start_idx == -1:
         return None
 
-    candidate = match.group(0)
+    bracket_count = 0
+    end_idx = -1
+    in_string = False
+    escape = False
+
+    for i in range(start_idx, len(text)):
+        char = text[i]
+
+        if escape:
+            escape = False
+            continue
+
+        if char == "\\":
+            escape = True
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            continue
+
+        if not in_string:
+            if char == "[":
+                bracket_count += 1
+            elif char == "]":
+                bracket_count -= 1
+                if bracket_count == 0:
+                    end_idx = i
+                    break
+
+    if end_idx == -1:
+        return None
+
+    candidate = text[start_idx : end_idx + 1]
     try:
         data = json.loads(candidate)
         if isinstance(data, list):
