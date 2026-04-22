@@ -1,0 +1,105 @@
+# ============================================================
+# Definizione dei materiali procedurali per NL2Scene3D
+# ============================================================
+# Ogni chiave è la semantica del materiale (material_semantics).
+# I parametri PBR sono applicati al nodo Principled BSDF.
+# Le texture vengono cercate in assets_dir/textures/<semantica>/
+# nei formati: albedo.*, roughness.*, normal.*, displacement.*
+
+materials:
+  wood:
+    base_color: [0.55, 0.35, 0.18, 1.0]
+    metallic: 0.0
+    roughness: 0.7
+    noise_texture:
+      scale: 12.0
+      detail: 8.0
+      roughness: 0.6
+      distortion: 2.0
+    color_ramp:
+      - position: 0.0
+        color: [0.35, 0.18, 0.05, 1.0]
+      - position: 1.0
+        color: [0.65, 0.40, 0.18, 1.0]
+
+  glass:
+    base_color: [0.9, 0.95, 1.0, 1.0]
+    metallic: 0.0
+    roughness: 0.0
+    ior: 1.45
+    transmission_weight: 1.0
+    blend_method: BLEND
+
+  fabric:
+    base_color: [0.6, 0.4, 0.8, 1.0]
+    metallic: 0.0
+    roughness: 0.8
+    sheen_weight: 0.5
+    noise_texture:
+      scale: 40.0
+      detail: 4.0
+      roughness: 0.8
+
+  metal:
+    base_color: [0.8, 0.8, 0.85, 1.0]
+    metallic: 1.0
+    roughness: 0.15
+
+  plastic:
+    base_color: [0.2, 0.5, 0.9, 1.0]
+    metallic: 0.0
+    roughness: 0.4
+
+  concrete:
+    base_color: [0.55, 0.55, 0.55, 1.0]
+    metallic: 0.0
+    roughness: 0.9
+    musgrave_texture:
+      scale: 8.0
+      detail: 6.0
+    color_ramp:
+      - position: 0.0
+        color: [0.4, 0.4, 0.4, 1.0]
+      - position: 1.0
+        color: [0.65, 0.65, 0.65, 1.0]
+
+  ceramic:
+    base_color: [0.95, 0.95, 0.9, 1.0]
+    metallic: 0.0
+    roughness: 0.05
+    specular_ior_level: 0.8
+
+  leather:
+    base_color: [0.35, 0.17, 0.07, 1.0]
+    metallic: 0.0
+    roughness: 0.6
+    noise_texture:
+      scale: 25.0
+      detail: 3.0
+      roughness: 0.5
+    color_ramp:
+      - position: 0.0
+        color: [0.25, 0.12, 0.05, 1.0]
+      - position: 1.0
+        color: [0.45, 0.22, 0.10, 1.0]
+
+  marble:
+    base_color: [0.9, 0.9, 0.9, 1.0]
+    metallic: 0.0
+    roughness: 0.1
+    specular_ior_level: 1.0
+    noise_texture:
+      scale: 5.0
+      detail: 10.0
+      roughness: 0.7
+      distortion: 1.5
+    color_ramp:
+      - position: 0.0
+        color: [0.9, 0.9, 0.9, 1.0]
+      - position: 1.0
+        color: [0.2, 0.2, 0.25, 1.0]
+
+  rubber:
+    base_color: [0.05, 0.05, 0.05, 1.0]
+    metallic: 0.0
+    roughness: 0.95

@@ -49,30 +49,6 @@ def clear_scene() -> None:
     logger.debug("Scena pulita: tutti gli oggetti di default eliminati.")
 
 
-# ---------------------------------------------------------------------------
-# Feature C — setup_lighting semantico
-# ---------------------------------------------------------------------------
-def setup_lighting(
-    lights: list[Any] | None = None,
-) -> None:
-    """
-    Configura l'illuminazione della scena.
-
-    Se viene passata una lista di LightObject generati dall'LLM, li istanzia
-    in Blender con i parametri specificati . Altrimenti usa un
-    setup di base con luce solare e fill.
-
-    Args:
-        lights: Lista di LightObject Pydantic (opzionale). Se None o vuota,
-            usa l'illuminazione di default.
-    """
-
-    if lights:
-        _setup_lights_from_llm(lights)
-    else:
-        _setup_default_lighting()
-
-
 def _setup_default_lighting() -> None:
     """Illuminazione di base: sole principale + fill area."""
     if bpy is None:
@@ -147,7 +123,7 @@ def _setup_lights_from_llm(lights: list[Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Feature C — setup_camera con bounding box globale
+# Configurazione della telecamera basata sul bounding box globale della scena
 # ---------------------------------------------------------------------------
 def setup_camera(
     imported_objects: list[Any] | None = None,
@@ -332,37 +308,119 @@ def _compute_optimal_camera_location(
 
 
 # ---------------------------------------------------------------------------
-# Feature E — Materiali procedurali
+# Inizializzazione della configurazione dei materiali tramite file YAML
 # ---------------------------------------------------------------------------
+
+_MATERIALS_CONFIG: dict[str, Any] | None = None
+_MATERIALS_CONFIG_PATH = (
+    Path(__file__).parent.parent.parent.parent / "config" / "materials.yaml"
+)
+
+
+def _load_materials_config() -> dict[str, Any]:
+    """Carica la configurazione dei materiali da config/materials.yaml.
+
+    Returns:
+        Dizionario con la sezione ``materials`` del file YAML.
+        Dizionario vuoto se il file non esiste o non è leggibile.
+    """
+    global _MATERIALS_CONFIG  # noqa: PLW0603
+    if _MATERIALS_CONFIG is not None:
+        return _MATERIALS_CONFIG
+
+    try:
+        import yaml  # noqa: PLC0415
+
+        if _MATERIALS_CONFIG_PATH.exists():
+            with _MATERIALS_CONFIG_PATH.open(encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            _MATERIALS_CONFIG = data.get("materials", {})
+            logger.debug(
+                "Configurazione materiali caricata da: %s", _MATERIALS_CONFIG_PATH
+            )
+        else:
+            logger.debug(
+                "File materials.yaml non trovato in %s; uso parametri hardcoded.",
+                _MATERIALS_CONFIG_PATH,
+            )
+            _MATERIALS_CONFIG = {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Errore lettura materials.yaml: %s", exc)
+        _MATERIALS_CONFIG = {}
+
+    return _MATERIALS_CONFIG
+
+
+def _find_pbr_textures(
+    material_semantics: str,
+    assets_dir: Path,
+) -> dict[str, Path]:
+    """Cerca texture PBR nella directory assets_dir/textures/<semantica>/.
+
+    Cerca i file con stem albedo/diffuse (Base Color), roughness, normal,
+    displacement nei formati .png, .jpg, .exr, .tiff.
+
+    Args:
+        material_semantics: Nome del materiale (es. ``"wood"``).
+        assets_dir: Directory radice degli asset.
+
+    Returns:
+        Dizionario ``{slot_name: Path}`` per le texture trovate.
+        Slot: ``albedo``, ``roughness``, ``normal``, ``displacement``.
+    """
+    tex_dir = assets_dir / "textures" / material_semantics
+    if not tex_dir.exists():
+        return {}
+
+    slots = {
+        "albedo": ["albedo", "diffuse", "basecolor", "base_color", "color"],
+        "roughness": ["roughness", "rough"],
+        "normal": ["normal", "nor", "nrm"],
+        "displacement": ["displacement", "disp", "height"],
+    }
+    extensions = [".png", ".jpg", ".jpeg", ".exr", ".tiff", ".tga"]
+    found: dict[str, Path] = {}
+
+    for slot, stems in slots.items():
+        for stem in stems:
+            for ext in extensions:
+                candidate = tex_dir / f"{stem}{ext}"
+                if candidate.exists():
+                    found[slot] = candidate
+                    break
+            if slot in found:
+                break
+
+    if found:
+        logger.debug(
+            "Texture PBR trovate per '%s': %s",
+            material_semantics,
+            list(found.keys()),
+        )
+    return found
+
+
 def _apply_procedural_material(
     obj: object,
     material_semantics: str,
+    assets_dir: Path | None = None,
 ) -> None:
-    """
-    Applica uno shader procedurale all'oggetto in base alla semantica.
+    """Applica uno shader procedurale PBR all'oggetto in base alla semantica.
 
-    Shader implementati:
-    - "wood": Noise Texture → ColorRamp → Base Color (venatura legno)
-    - "glass": Principled BSDF con Transmission=1.0, IOR=1.45
-    - "fabric": Noise Texture rugosità + Base Color morbido
-    - "metal": Metallic=1.0, Roughness bassa
-    - "plastic": Base Color saturo, Roughness media
-    - "concrete": Musgrave Texture grigio per ruvidità
-    - "ceramic": Base Color bianco/colorato, lucido
-    - "leather": Noise sottile + Base Color caldo
-    - "marble": Noise complessa → ColorRamp bianco/grigio
-    - "rubber": Base Color scuro, Roughness alta
+    I parametri vengono letti da ``config/materials.yaml``. Se vengono
+    trovate texture PBR nella directory ``assets_dir/textures/<semantica>/``,
+    vengono collegate automaticamente al nodo Principled BSDF.
 
     Args:
-        obj: Oggetto Blender a cui applicare il materiale.
-        material_semantics: Stringa semantica del materiale.
+        obj: Oggetto Blender target.
+        material_semantics: Stringa semantica del materiale (es. ``"wood"``).
+        assets_dir: Directory degli asset per la ricerca delle texture PBR.
     """
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
     mat_name = f"Procedural_{material_semantics}_{obj.name}"  # type: ignore[attr-defined]
 
-    # Rimuove materiali esistenti sull'oggetto
     if hasattr(obj, "data") and hasattr(obj.data, "materials"):  # type: ignore[attr-defined]
         obj.data.materials.clear()  # type: ignore[attr-defined]
 
@@ -372,137 +430,225 @@ def _apply_procedural_material(
     links = mat.node_tree.links
     nodes.clear()
 
-    # Nodo output
     output = nodes.new("ShaderNodeOutputMaterial")
-    output.location = (400, 0)
+    output.location = (600, 0)
 
-    # Nodo Principled BSDF (base per tutti gli shader)
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (0, 0)
+    bsdf.location = (200, 0)
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
 
+    # ---- Parametri dal YAML ----
+    cfg = _load_materials_config()
     sem = material_semantics.lower()
+    params = cfg.get(sem, {})
 
-    if sem == "glass":
-        bsdf.inputs["Base Color"].default_value = (0.9, 0.95, 1.0, 1.0)
-        bsdf.inputs["Metallic"].default_value = 0.0
-        bsdf.inputs["Roughness"].default_value = 0.0
-        bsdf.inputs["IOR"].default_value = 1.45
-        bsdf.inputs["Transmission Weight"].default_value = 1.0
-        mat.blend_method = "BLEND"
+    # Applicazione del colore di base configurato (o del valore predefinito)
+    base_color = params.get("base_color")
+    if base_color:
+        bsdf.inputs["Base Color"].default_value = tuple(base_color)
 
-    elif sem == "wood":
-        noise = nodes.new("ShaderNodeTexNoise")
-        noise.location = (-400, 0)
-        noise.inputs["Scale"].default_value = 12.0
-        noise.inputs["Detail"].default_value = 8.0
-        noise.inputs["Roughness"].default_value = 0.6
-        noise.inputs["Distortion"].default_value = 2.0
+    for key, bsdf_key in [
+        ("metallic", "Metallic"),
+        ("roughness", "Roughness"),
+        ("ior", "IOR"),
+        ("transmission_weight", "Transmission Weight"),
+        ("sheen_weight", "Sheen Weight"),
+        ("specular_ior_level", "Specular IOR Level"),
+    ]:
+        if key in params:
+            bsdf.inputs[bsdf_key].default_value = float(params[key])
 
+    if params.get("blend_method"):
+        mat.blend_method = params["blend_method"]
+
+    # ---- Nodi texture procedurali dal YAML ----
+    noise_cfg = params.get("noise_texture")
+    musgrave_cfg = params.get("musgrave_texture")
+    ramp_cfg = params.get("color_ramp")
+
+    tex_node: Any = None
+
+    if noise_cfg:
+        tex_node = nodes.new("ShaderNodeTexNoise")
+        tex_node.location = (-400, 0)
+        for attr, input_name in [
+            ("scale", "Scale"),
+            ("detail", "Detail"),
+            ("roughness", "Roughness"),
+            ("distortion", "Distortion"),
+        ]:
+            if attr in noise_cfg:
+                tex_node.inputs[input_name].default_value = float(noise_cfg[attr])
+
+    elif musgrave_cfg:
+        tex_node = nodes.new("ShaderNodeTexMusgrave")
+        tex_node.location = (-400, 0)
+        for attr, input_name in [("scale", "Scale"), ("detail", "Detail")]:
+            if attr in musgrave_cfg:
+                tex_node.inputs[input_name].default_value = float(musgrave_cfg[attr])
+
+    if tex_node and ramp_cfg:
         ramp = nodes.new("ShaderNodeValToRGB")
         ramp.location = (-150, 0)
-        ramp.color_ramp.elements[0].color = (0.35, 0.18, 0.05, 1.0)
-        ramp.color_ramp.elements[1].color = (0.65, 0.40, 0.18, 1.0)
-
-        links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+        output_socket = (
+            "Fac" if tex_node.bl_idname == "ShaderNodeTexNoise" else "Height"
+        )
+        links.new(tex_node.outputs[output_socket], ramp.inputs["Fac"])
         links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-        bsdf.inputs["Roughness"].default_value = 0.7
+        for i, stop in enumerate(ramp_cfg[:2]):
+            if i < len(ramp.color_ramp.elements):
+                ramp.color_ramp.elements[i].color = tuple(stop["color"])
+    elif tex_node:
+        links.new(tex_node.outputs["Fac"], bsdf.inputs["Roughness"])
 
-    elif sem == "fabric":
-        noise = nodes.new("ShaderNodeTexNoise")
-        noise.location = (-400, 0)
-        noise.inputs["Scale"].default_value = 40.0
-        noise.inputs["Detail"].default_value = 4.0
-        noise.inputs["Roughness"].default_value = 0.8
+    # ---- Texture PBR da file ----
+    if assets_dir is not None:
+        pbr = _find_pbr_textures(sem, assets_dir)
+        _link_pbr_textures(nodes, links, bsdf, pbr)
 
-        links.new(noise.outputs["Fac"], bsdf.inputs["Roughness"])
-        bsdf.inputs["Base Color"].default_value = (0.6, 0.4, 0.8, 1.0)
-        bsdf.inputs["Sheen Weight"].default_value = 0.5
-
-    elif sem == "metal":
-        bsdf.inputs["Base Color"].default_value = (0.8, 0.8, 0.85, 1.0)
-        bsdf.inputs["Metallic"].default_value = 1.0
-        bsdf.inputs["Roughness"].default_value = 0.15
-
-    elif sem == "plastic":
-        bsdf.inputs["Base Color"].default_value = (0.2, 0.5, 0.9, 1.0)
-        bsdf.inputs["Metallic"].default_value = 0.0
-        bsdf.inputs["Roughness"].default_value = 0.4
-
-    elif sem == "concrete":
-        musgrave = nodes.new("ShaderNodeTexMusgrave")
-        musgrave.location = (-400, 0)
-        musgrave.inputs["Scale"].default_value = 8.0
-        musgrave.inputs["Detail"].default_value = 6.0
-
-        ramp = nodes.new("ShaderNodeValToRGB")
-        ramp.location = (-150, 0)
-        ramp.color_ramp.elements[0].color = (0.4, 0.4, 0.4, 1.0)
-        ramp.color_ramp.elements[1].color = (0.65, 0.65, 0.65, 1.0)
-
-        links.new(musgrave.outputs["Height"], ramp.inputs["Fac"])
-        links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-        bsdf.inputs["Roughness"].default_value = 0.9
-
-    elif sem == "ceramic":
-        bsdf.inputs["Base Color"].default_value = (0.95, 0.95, 0.9, 1.0)
-        bsdf.inputs["Metallic"].default_value = 0.0
-        bsdf.inputs["Roughness"].default_value = 0.05
-        bsdf.inputs["Specular IOR Level"].default_value = 0.8
-
-    elif sem == "leather":
-        noise = nodes.new("ShaderNodeTexNoise")
-        noise.location = (-400, 0)
-        noise.inputs["Scale"].default_value = 25.0
-        noise.inputs["Detail"].default_value = 3.0
-        noise.inputs["Roughness"].default_value = 0.5
-
-        ramp = nodes.new("ShaderNodeValToRGB")
-        ramp.location = (-150, 0)
-        ramp.color_ramp.elements[0].color = (0.25, 0.12, 0.05, 1.0)
-        ramp.color_ramp.elements[1].color = (0.45, 0.22, 0.10, 1.0)
-
-        links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-        links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-        bsdf.inputs["Roughness"].default_value = 0.6
-
-    elif sem == "marble":
-        noise = nodes.new("ShaderNodeTexNoise")
-        noise.location = (-550, 0)
-        noise.inputs["Scale"].default_value = 5.0
-        noise.inputs["Detail"].default_value = 10.0
-        noise.inputs["Roughness"].default_value = 0.7
-        noise.inputs["Distortion"].default_value = 1.5
-
-        ramp = nodes.new("ShaderNodeValToRGB")
-        ramp.location = (-200, 0)
-        ramp.color_ramp.elements[0].color = (0.9, 0.9, 0.9, 1.0)
-        ramp.color_ramp.elements[1].color = (0.2, 0.2, 0.25, 1.0)
-
-        links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-        links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-        bsdf.inputs["Roughness"].default_value = 0.1
-        bsdf.inputs["Specular IOR Level"].default_value = 1.0
-
-    elif sem == "rubber":
-        bsdf.inputs["Base Color"].default_value = (0.05, 0.05, 0.05, 1.0)
-        bsdf.inputs["Metallic"].default_value = 0.0
-        bsdf.inputs["Roughness"].default_value = 0.95
-
-    else:
-        # Fallback generico
-        bsdf.inputs["Base Color"].default_value = (0.5, 0.5, 0.5, 1.0)
-        bsdf.inputs["Roughness"].default_value = 0.7
-
-    # Assegna il materiale all'oggetto
     if hasattr(obj, "data") and hasattr(obj.data, "materials"):  # type: ignore[attr-defined]
         obj.data.materials.append(mat)  # type: ignore[attr-defined]
 
     logger.debug(
-        "Materiale procedurale '%s' applicato a '%s'.",
+        "Materiale '%s' applicato a '%s'.",
         material_semantics,
         obj.name,  # type: ignore[attr-defined]
     )
+
+
+def _link_pbr_textures(
+    nodes: Any,
+    links: Any,
+    bsdf: Any,
+    pbr: dict[str, Path],
+) -> None:
+    """Collega le texture PBR trovate al nodo Principled BSDF.
+
+    Args:
+        nodes: Collezione nodi del material node tree.
+        links: Collezione link del material node tree.
+        bsdf: Nodo Principled BSDF.
+        pbr: Dizionario ``{slot: Path}`` delle texture trovate.
+    """
+    if not pbr:
+        return
+
+    x_offset = -600
+
+    if "albedo" in pbr:
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.location = (x_offset, 300)
+        tex.image = bpy.data.images.load(str(pbr["albedo"]))  # type: ignore[union-attr]
+        links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        logger.debug("PBR albedo collegata: %s", pbr["albedo"])
+
+    if "roughness" in pbr:
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.location = (x_offset, 0)
+        tex.image = bpy.data.images.load(str(pbr["roughness"]))  # type: ignore[union-attr]
+        tex.image.colorspace_settings.name = "Non-Color"
+        links.new(tex.outputs["Color"], bsdf.inputs["Roughness"])
+        logger.debug("PBR roughness collegata: %s", pbr["roughness"])
+
+    if "normal" in pbr:
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.location = (x_offset, -300)
+        tex.image = bpy.data.images.load(str(pbr["normal"]))  # type: ignore[union-attr]
+        tex.image.colorspace_settings.name = "Non-Color"
+        normal_map = nodes.new("ShaderNodeNormalMap")
+        normal_map.location = (x_offset + 200, -300)
+        links.new(tex.outputs["Color"], normal_map.inputs["Color"])
+        links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+        logger.debug("PBR normal map collegata: %s", pbr["normal"])
+
+    if "displacement" in pbr:
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.location = (x_offset, -600)
+        tex.image = bpy.data.images.load(str(pbr["displacement"]))  # type: ignore[union-attr]
+        tex.image.colorspace_settings.name = "Non-Color"
+        disp_node = nodes.new("ShaderNodeDisplacement")
+        disp_node.location = (x_offset + 200, -600)
+        output_node = next(
+            n for n in nodes if n.bl_idname == "ShaderNodeOutputMaterial"
+        )
+        links.new(tex.outputs["Color"], disp_node.inputs["Height"])
+        links.new(disp_node.outputs["Displacement"], output_node.inputs["Displacement"])
+        logger.debug("PBR displacement collegata: %s", pbr["displacement"])
+
+
+# ---------------------------------------------------------------------------
+# Supporto per l'illuminazione ambientale tramite mappe HDRI
+# ---------------------------------------------------------------------------
+
+
+def setup_lighting(
+    lights: list[Any] | None = None,
+    hdri_path: str | Path | None = None,
+    hdri_strength: float = 1.0,
+) -> None:
+    """Configura l'illuminazione della scena con supporto HDRI.
+
+    Se ``hdri_path`` è fornito, carica la mappa HDRI come sfondo ambientale
+    World (illuminazione globale IBL). Le luci LLM e l'illuminazione di default
+    vengono comunque configurate in aggiunta all'HDRI.
+
+    Args:
+        lights: Lista di LightObject Pydantic (opzionale).
+        hdri_path: Percorso a un file .hdr o .exr per l'illuminazione ambientale.
+        hdri_strength: Intensità dell'HDRI (default 1.0).
+    """
+    if bpy is None:
+        raise ImportError("Questo modulo richiede Blender e il modulo bpy")
+
+    if hdri_path is not None:
+        _setup_hdri_world(Path(hdri_path), hdri_strength)
+
+    if lights:
+        _setup_lights_from_llm(lights)
+    elif hdri_path is None:
+        # Solo illuminazione di default se non c'è né HDRI né luci LLM
+        _setup_default_lighting()
+
+
+def _setup_hdri_world(hdri_path: Path, strength: float) -> None:
+    """Carica una mappa HDRI come illuminazione ambientale World.
+
+    Args:
+        hdri_path: Percorso al file .hdr / .exr.
+        strength: Intensità dell'ambiente (nodo Background).
+    """
+    if bpy is None:
+        raise ImportError("Questo modulo richiede Blender e il modulo bpy")
+
+    if not hdri_path.exists():
+        logger.warning("File HDRI non trovato: %s. Skip.", hdri_path)
+        return
+
+    world = bpy.context.scene.world
+    if world is None:
+        world = bpy.data.worlds.new("NL2Scene3DWorld")
+        bpy.context.scene.world = world
+
+    world.use_nodes = True
+    w_nodes = world.node_tree.nodes
+    w_links = world.node_tree.links
+    w_nodes.clear()
+
+    env_tex = w_nodes.new("ShaderNodeTexEnvironment")
+    env_tex.location = (-300, 0)
+    env_tex.image = bpy.data.images.load(str(hdri_path))
+
+    background = w_nodes.new("ShaderNodeBackground")
+    background.location = (0, 0)
+    background.inputs["Strength"].default_value = strength
+
+    output = w_nodes.new("ShaderNodeOutputWorld")
+    output.location = (300, 0)
+
+    w_links.new(env_tex.outputs["Color"], background.inputs["Color"])
+    w_links.new(background.outputs["Background"], output.inputs["Surface"])
+
+    logger.info("HDRI caricata: %s (strength=%.2f)", hdri_path, strength)
 
 
 # ---------------------------------------------------------------------------
@@ -512,19 +658,25 @@ def import_asset(
     name: str,
     assets_dir: str | Path,
     material_semantics: str | None = None,
+    similarity_threshold: float = 0.1,
 ) -> object:
-    """
-    Importa un modello 3D dalla libreria locale.
+    """Importa un modello 3D dalla libreria locale con ricerca semantica.
 
-    Cerca nell'ordine: .obj → .fbx → .glb → .gltf
-    Se non trova l'asset, crea un proxy cubo.
+    Invece di richiedere che il nome del file corrisponda esattamente al
+    campo ``name`` generato dall'LLM, utilizza ``AssetIndex`` per trovare
+    l'asset più simile semanticamente. Questo consente di gestire varianti
+    lessicali (es. ``"wooden_table"`` -> ``table.obj``).
+
+    Cerca nell'ordine: match esatto -> ricerca semantica -> proxy cubo.
+
     Se il modello non ha materiali o è un proxy, applica shader procedurale
-    in base a material_semantics .
+    in base a ``material_semantics``.
 
     Args:
-        name: Nome normalizzato dell'asset (es. "table").
+        name: Nome normalizzato dell'asset (es. ``"table"``).
         assets_dir: Percorso alla directory degli asset.
         material_semantics: Semantica del materiale per shader procedurale.
+        similarity_threshold: Soglia cosine similarity per il RAG (default 0.1).
 
     Returns:
         Riferimento all'oggetto Blender importato o al proxy.
@@ -532,42 +684,33 @@ def import_asset(
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
+    from computer_graphics.asset_retriever import AssetIndex  # noqa: PLC0415
+
     assets_path = Path(assets_dir)
     bpy.ops.object.select_all(action="DESELECT")
 
-    # Cerca il file asset nei formati supportati
-    for ext in (".obj", ".fbx", ".glb", ".gltf"):
-        filepath = assets_path / f"{name}{ext}"
-        if filepath.exists():
-            blender_obj = _import_file(str(filepath), name, ext)
+    # Costruzione / recupero dell'indice (la classe gestisce la scansione)
+    index = AssetIndex(assets_path)
+    found_path = index.find_best_match_path_for_name(
+        name, assets_path, threshold=similarity_threshold
+    )
 
-            if blender_obj is not None:
-                _maybe_apply_semantic_material(
-                    blender_obj, material_semantics, is_proxy=False
-                )
+    if found_path is not None:
+        blender_obj = _import_file(str(found_path), name, found_path.suffix)
+        if blender_obj is not None:
+            _maybe_apply_semantic_material(
+                blender_obj, material_semantics, is_proxy=False
+            )
             return blender_obj
-
-    # Fallback: cerca in sottocartelle
-    for subdir in assets_path.iterdir():
-        if subdir.is_dir():
-            for ext in (".obj", ".fbx", ".glb"):
-                filepath = subdir / f"{name}{ext}"
-                if filepath.exists():
-                    blender_obj = _import_file(str(filepath), name, ext)
-                    if blender_obj is not None:
-                        _maybe_apply_semantic_material(
-                            blender_obj, material_semantics, is_proxy=False
-                        )
-                    return blender_obj
 
     # Proxy geometrico
     logger.warning(
-        "Asset '%s' non trovato in %s. Creo proxy cubo.",
+        "Asset '%s' non trovato in %s (RAG threshold=%.2f). Creo proxy cubo.",
         name,
         assets_dir,
+        similarity_threshold,
     )
     proxy = _create_proxy(name)
-
     _maybe_apply_semantic_material(proxy, material_semantics, is_proxy=True)
     return proxy
 
@@ -626,9 +769,10 @@ def _import_file(
     bpy.ops.object.select_all(action="DESELECT")
 
     if ext == ".obj":
-        bpy.ops.wm.obj_import(filepath=filepath)
+        # Molte mesh esterne usano Y-Up; forziamo Z-Up in Blender
+        bpy.ops.wm.obj_import(filepath=filepath, forward_axis="NEGATIVE_Z", up_axis="Y")
     elif ext == ".fbx":
-        bpy.ops.import_scene.fbx(filepath=filepath)
+        bpy.ops.import_scene.fbx(filepath=filepath, axis_forward="-Z", axis_up="Y")
     elif ext in (".glb", ".gltf"):
         bpy.ops.import_scene.gltf(filepath=filepath)
 
@@ -661,8 +805,8 @@ def _create_proxy(name: str) -> object:
     proxy = bpy.context.object
     proxy.name = f"{_PROXY_PREFIX}{name}"
 
-    # Materiale rosso di default per proxy (Feature E lo sovrascriverà se
-    # material_semantics è fornita)
+    # Materiale di fallback per i proxy; sovrascritto dall'implementazione
+    # dei materiali se material_semantics è fornita
     mat = bpy.data.materials.new(name=f"ProxyMat_{name}")
     mat.use_nodes = True
     principled = mat.node_tree.nodes["Principled BSDF"]
@@ -718,7 +862,7 @@ def place_object(
 
 
 # ---------------------------------------------------------------------------
-# Feature A — Parentela gerarchica
+# Gestione delle relazioni gerarchiche tra gli oggetti importati
 # ---------------------------------------------------------------------------
 def _apply_parent_relationships(
     name_to_blender: dict[str, object],
@@ -781,27 +925,26 @@ def _apply_parent_relationships(
 
 
 # ---------------------------------------------------------------------------
-# Feature B — Simulazione Rigid Body per posizionamento fisico
+# Posizionamento degli oggetti sulle superfici tramite raycasting
 # ---------------------------------------------------------------------------
-def apply_physics_settling(
-    imported_objects: list[Any],
-    settle_frames: int = _PHYSICS_SETTLE_FRAMES,
-) -> None:
-    """
-    Applica la simulazione Rigid Body per il posizionamento fisico realistico.
 
-    Algoritmo :
-    1. Crea un pavimento invisibile con Rigid Body "Passive".
-    2. Assegna Rigid Body "Active" (Mesh collision) a tutti gli oggetti.
-    3. Avanza la timeline di `settle_frames` frame per lo "settling".
-    4. Esegue "Bake to Transforms" (Apply Visual Transform) per fissare
-       le posizioni calcolate dalla fisica.
-    5. Rimuove i modificatori Rigid Body da tutti gli oggetti.
-    6. Rimuove il pavimento invisibile.
+
+def snap_objects_to_surface(
+    imported_objects: list[Any],
+    ray_distance: float = 100.0,
+) -> None:
+    """Posiziona gli oggetti sulla superficie sottostante via raycasting.
+
+    Proietta un raggio verso il basso (asse -Z) dall'origine di ogni oggetto.
+    Se il raggio colpisce una superficie, l'oggetto viene traslato in modo che
+    il suo punto più basso coincida con il punto di impatto.
+
+    Questo metodo sostituisce la simulazione Rigid Body da 80 frame con
+    un'operazione O(n) immediata e deterministica.
 
     Args:
-        imported_objects: Lista di oggetti Blender a cui applicare la fisica.
-        settle_frames: Numero di frame da simulare (default: 80).
+        imported_objects: Lista di oggetti Blender da posizionare.
+        ray_distance: Distanza massima del raggio in unità Blender.
     """
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
@@ -810,108 +953,69 @@ def apply_physics_settling(
         return
 
     scene = bpy.context.scene
+    depsgraph = bpy.context.evaluated_depsgraph_get()
 
-    # 1. Crea il pavimento invisibile con Rigid Body Passive
-    bpy.ops.mesh.primitive_plane_add(size=30.0, location=(0.0, 0.0, -0.01))
-    floor_obj = bpy.context.object
-    floor_obj.name = "_PhysicsFloor_NL2Scene3D"
-    floor_obj.hide_render = True
-
-    bpy.ops.object.select_all(action="DESELECT")
-    floor_obj.select_set(True)
-    bpy.context.view_layer.objects.active = floor_obj  # type: ignore[assignment]
-    bpy.ops.rigidbody.object_add()
-    floor_obj.rigid_body.type = "PASSIVE"
-    floor_obj.rigid_body.collision_shape = "MESH"
-    floor_obj.rigid_body.friction = 0.8
-
-    # 2. Assegna Rigid Body Active a tutti gli oggetti importati
     for obj in imported_objects:
         try:
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)  # type: ignore[attr-defined]
-            bpy.context.view_layer.objects.active = obj  # type: ignore[assignment]
-            bpy.ops.rigidbody.object_add()
-            obj.rigid_body.type = "ACTIVE"  # type: ignore[attr-defined]
-            # Usa CONVEX_HULL per performance, MESH per precisione
-            obj.rigid_body.collision_shape = "CONVEX_HULL"  # type: ignore[attr-defined]
-            obj.rigid_body.friction = 0.7  # type: ignore[attr-defined]
-            obj.rigid_body.restitution = 0.1  # type: ignore[attr-defined]
-            obj.rigid_body.mass = 1.0  # type: ignore[attr-defined]
+            origin = obj.location.copy()  # type: ignore[attr-defined]
+            direction = (0.0, 0.0, -1.0)
+
+            # Calcola l'offset tra l'origine dell'oggetto e il suo punto più basso
+            # analizzando i vertici in spazio mondo
+            z_bottom_offset = 0.0
+            if (
+                hasattr(obj, "data")
+                and obj.data is not None  # type: ignore[attr-defined]
+                and hasattr(obj.data, "vertices")  # type: ignore[attr-defined]
+            ):
+                mat = obj.matrix_world  # type: ignore[attr-defined]
+                world_zs = [
+                    (mat @ v.co).z  # type: ignore[attr-defined]
+                    for v in obj.data.vertices  # type: ignore[attr-defined]
+                ]
+                if world_zs:
+                    z_bottom_offset = obj.location.z - min(world_zs)  # type: ignore[attr-defined]
+
+            # Lancia il raggio verso il basso escludendo l'oggetto stesso
+            hit, location, _normal, _index, _hit_obj, _matrix = scene.ray_cast(
+                depsgraph,
+                origin,
+                direction,
+                distance=ray_distance,
+            )
+
+            if hit:
+                # Posiziona l'oggetto in modo che il fondo tocchi la superficie
+                obj.location.z = location.z + z_bottom_offset  # type: ignore[attr-defined]
+                logger.debug(
+                    "Snap '%s': z %.3f -> %.3f (surface z=%.3f)",
+                    obj.name,  # type: ignore[attr-defined]
+                    origin.z,
+                    obj.location.z,  # type: ignore[attr-defined]
+                    location.z,
+                )
+            else:
+                logger.debug(
+                    "Snap '%s': nessuna superficie trovata entro %.1f m.",
+                    obj.name,  # type: ignore[attr-defined]
+                    ray_distance,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Impossibile aggiungere Rigid Body a '%s': %s",
-                obj.name,  # type: ignore[attr-defined]
+                "Snap fallito per '%s': %s",
+                getattr(obj, "name", "?"),
                 exc,
             )
 
-    # 3. Configura e avanza la timeline per lo settling
-    scene.frame_start = 1
-    scene.frame_end = settle_frames + 10
-    scene.frame_set(1)
+    logger.info("Surface snap completato per %d oggetti.", len(imported_objects))
 
-    logger.info("Avanzamento fisica Rigid Body per %d frame...", settle_frames)
-    for frame in range(1, settle_frames + 1):
-        scene.frame_set(frame)
 
-    # Posiziona al frame finale per catturare le posizioni stabilizzate
-    scene.frame_set(settle_frames)
-
-    # 4. Bake to Transforms: applica le posizioni visive come trasformazioni reali
-    for obj in imported_objects:
-        try:
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)  # type: ignore[attr-defined]
-            bpy.context.view_layer.objects.active = obj  # type: ignore[assignment]
-            # Applica le trasformazioni visive (equivalente di "Bake to Transforms")
-            bpy.ops.object.visual_transform_apply()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Impossibile applicare visual transform a '%s': %s",
-                obj.name,  # type: ignore[attr-defined]
-                exc,
-            )
-
-    # 5. Rimuove i Rigid Body da tutti gli oggetti
-    for obj in imported_objects:
-        try:
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)  # type: ignore[attr-defined]
-            bpy.context.view_layer.objects.active = obj  # type: ignore[assignment]
-            if obj.rigid_body is not None:  # type: ignore[attr-defined]
-                bpy.ops.rigidbody.object_remove()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Impossibile rimuovere Rigid Body da '%s': %s",
-                obj.name,  # type: ignore[attr-defined]
-                exc,
-            )
-
-    # Rimuove il Rigid Body dal pavimento
-    try:
-        bpy.ops.object.select_all(action="DESELECT")
-        floor_obj.select_set(True)
-        bpy.context.view_layer.objects.active = floor_obj  # type: ignore[assignment]
-        bpy.ops.rigidbody.object_remove()
-    except Exception:  # noqa: BLE001
-        pass
-
-    # 6. Rimuove il pavimento invisibile dalla scena
-    bpy.ops.object.select_all(action="DESELECT")
-    floor_obj.select_set(True)
-    bpy.ops.object.delete(use_global=False)
-
-    # Ripristina la timeline
-    scene.frame_set(1)
-
-    logger.info(
-        "Physics settling completato: %d oggetti stabilizzati.",
-        len(imported_objects),
-    )
+# Alias per retrocompatibilità con codice esistente che chiama apply_physics_settling
+apply_physics_settling = snap_objects_to_surface
 
 
 # ---------------------------------------------------------------------------
-# populate_scene — orchestrazione principale (Feature A + B + C + E)
+# Orchestrazione principale della scena: caricamento, posizionamento e materiali
 # ---------------------------------------------------------------------------
 def populate_scene(
     objects: list[Any],
@@ -995,20 +1099,20 @@ def populate_scene(
             logger.error("Errore durante import di '%s': %s", name, exc)
             results["skipped"].append(name)
 
-    # Feature A — Secondo passaggio: applica relazioni di parentela
+    # Applicazione delle relazioni di parentela gerarchica tra gli oggetti
     logger.info("Applicazione gerarchia parent-child...")
     _apply_parent_relationships(name_to_blender, all_objects_data)
 
-    # Feature B — Simulazione fisica (opzionale)
+    # Posizionamento istantaneo degli oggetti sulle superfici di supporto
     if enable_physics and imported_blender_objects:
-        logger.info("Avvio simulazione Rigid Body ...")
-        apply_physics_settling(imported_blender_objects)
+        logger.info("Avvio surface snap via raycasting...")
+        snap_objects_to_surface(imported_blender_objects)
 
-    # Feature C — Aggiorna camera per inquadrare la scena completa
+    # Regolazione della telecamera per l'inquadratura ottimale della scena
     logger.info("Aggiornamento camera sul bounding box della scena...")
     setup_camera(imported_objects=imported_blender_objects)
 
-    # Feature C — Illuminazione semantica
+    # Configurazione dell'illuminazione semantica basata sul contesto
     setup_lighting(lights=lights)
 
     logger.info(

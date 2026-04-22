@@ -71,20 +71,18 @@ Descrizione testuale (linguaggio naturale)
           │
           ▼
   [4.5] SceneGraph
-      Sistema di layout spaziale intelligente con bounding box AABB.
-      Rileva e risolve automaticamente le collisioni tra oggetti
-      tramite iterazioni di aggiustamento delle coordinate.
-      Se le collisioni non sono risolvibili spazialmente,
-      attiva un ciclo agentico: fornisce feedback contestuale al modello
-      per rigenerare le coordinate degli oggetti problematici,
-      mantenendo gli altri oggetti intatti.
+      Sistema di layout spaziale basato su bounding box orientati (OBB).
+      Calcola le intersezioni tra oggetti ruotati e risolve le sovrapposizioni
+      spostando gli elementi lungo la direzione centro-centro.
+      In caso di conflitti persistenti, fornisce feedback al modello
+      per la rigenerazione delle coordinate.
           │
           ▼
   [5] SceneBuilder + Renderer (Blender / bpy)
-      Pulizia della scena di default, configurazione di luci e camera,
-      importazione degli asset 3D, posizionamento secondo le coordinate
-      generate dal modello, applicazione di materiali procedurali,
-      render opzionale in PNG.
+      Configurazione di luci, camera e ambiente (HDRI).
+      Importazione degli asset con allineamento alle superfici tramite raycasting.
+      Applicazione di materiali PBR (configurabili via YAML o texture locali).
+      Esportazione in formati 2D (PNG) e 3D (GLB, USDZ).
 ```
 
 Il formato JSON intermedio prodotto dal modello e consumato da Blender segue questo schema:
@@ -161,10 +159,9 @@ Computer_Graphics_Project/
 │       ├── orchestrator.py        # Coordinamento con ciclo agentico retry
 │       └── blender/
 │           ├── __init__.py
-│           ├── scene_builder.py   # Fase 5: costruzione scena in Blender
-│           │                      #        Importa asset, applica materiali
-│           │                      #        Configura luci e gerarchia
-│           └── renderer.py        # Configurazione render e output
+│           ├── scene_builder.py   # Costruzione scena, importazione asset,
+│           │                      # snap alle superfici, materiali PBR
+│           └── renderer.py        # Rendering PNG ed esportazione GLB/USDZ
 ├── scripts/
 │   ├── run_pipeline.py            # Entry point CLI principale
 │   ├── blender_runner.py          # Script da eseguire dentro Blender
@@ -650,6 +647,16 @@ Il campo `material_semantics` permette al modello di specificare il tipo di mate
 | `marble` | Marmo | Bianco, venature fini, specular | Procedurale |
 | `rubber` | Gomma | Nero opaco, roughness alta | Matte |
 
+### Configurazione Materiali PBR
+
+I parametri degli shader (metallic, roughness, IOR, ecc.) sono definiti in `config/materials.yaml`. Il sistema supporta l'applicazione automatica di texture PBR se presenti nella struttura:
+
+`assets/textures/<material_semantics>/[albedo|roughness|normal|displacement].[png|jpg]`
+
+### Allineamento alle superfici (Surface Snap)
+
+Il sistema utilizza algoritmi di raycasting per rilevare le superfici sottostanti agli oggetti (pavimenti, ripiani, ecc.) e corregge automaticamente la coordinata Z per garantire il contatto fisico, evitando oggetti sospesi o compenetrati nelle basi.
+
 Esempio:
 
 ```json
@@ -700,8 +707,11 @@ Opzioni:
   --ollama-url TEXT     URL del server Ollama  [default: http://localhost:11434]
   -v, --verbose         Output di debug dettagliato
   -b, --blender         Lancia automaticamente Blender al termine
-  --render              Aggiunge il render PNG (richiede --blender)
+  --render              Genera il render PNG (richiede --blender)
   --render-output PATH  Percorso output PNG  [default: assets/renders/output.png]
+  --export-glb          Esporta la scena in formato .glb
+  --export-usdz         Esporta la scena in formato .usdz
+  --export-output PATH  Percorso base per l'export 3D
   --help                Mostra questo messaggio ed esce
 ```
 

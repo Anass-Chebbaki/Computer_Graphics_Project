@@ -148,7 +148,7 @@ class SceneObject(BaseModel):
     rot_z: float = Field(default=0.0)
     scale: float = Field(default=1.0, gt=0.0)
 
-    # Feature A — Gerarchia parent-child
+    # Implementazione della gerarchia genitore-figlio per gli oggetti della scena.
     parent: str | None = Field(
         default=None,
         description=(
@@ -157,7 +157,7 @@ class SceneObject(BaseModel):
         ),
     )
 
-    # Feature E — Materiali procedurali
+    # Supporto per l'assegnazione di materiali procedurali e semantici.
     material_semantics: MaterialSemantic | None = Field(
         default=None,
         description=(

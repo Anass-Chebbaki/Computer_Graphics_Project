@@ -102,13 +102,42 @@ def main(ctx: click.Context) -> None:
 @click.option(
     "--render",
     is_flag=True,
-    help="Aggiunge il render PNG (richiede --blender).",
+    help="Aggiunge il render PNG 2D (richiede --blender).",
 )
 @click.option(
     "--render-output",
     default="assets/renders/output.png",
     show_default=True,
     help="Percorso output PNG del render.",
+)
+# ---- Gestione delle opzioni di esportazione della scena 3D ----
+@click.option(
+    "--export-glb",
+    is_flag=True,
+    default=False,
+    help=(
+        "Esporta la scena assemblata in formato .glb "
+        "(GL Transmission Format). Richiede --blender."
+    ),
+)
+@click.option(
+    "--export-usdz",
+    is_flag=True,
+    default=False,
+    help=(
+        "Esporta la scena assemblata in formato .usdz "
+        "(Universal Scene Description). Richiede --blender e Blender 3.0+."
+    ),
+)
+@click.option(
+    "--export-output",
+    default="assets/renders/scene",
+    show_default=True,
+    help=(
+        "Percorso base del file 3D di output senza estensione "
+        "(es. assets/renders/my_scene). "
+        "L'estensione viene aggiunta automaticamente."
+    ),
 )
 def generate(  # noqa: PLR0913
     description: str | None,
@@ -122,9 +151,11 @@ def generate(  # noqa: PLR0913
     blender: bool,
     render: bool,
     render_output: str,
+    export_glb: bool,
+    export_usdz: bool,
+    export_output: str,
 ) -> None:
-    """
-    Genera una scena 3D da una descrizione in linguaggio naturale.
+    """Genera una scena 3D da una descrizione in linguaggio naturale.
 
     Esempi:
 
@@ -132,7 +163,10 @@ def generate(  # noqa: PLR0913
 
         computer-graphics generate --interactive --model mistral
 
-        computer-graphics generate --file scena.txt --blender --render
+        computer-graphics generate "stanza" --blender --export-glb
+
+        computer-graphics generate "studio" --blender --export-usdz \\
+            --export-output assets/renders/studio
     """
     _print_banner()
     _setup_logging(verbose)
@@ -145,12 +179,29 @@ def generate(  # noqa: PLR0913
     )
     effective_retries = retries or cfg.get("pipeline", {}).get("max_retries", 3)
 
+    # Validazione opzioni
+    if (export_glb or export_usdz) and not blender:
+        console_err.print(
+            "[bold red]Errore:[/bold red] --export-glb e --export-usdz "
+            "richiedono --blender."
+        )
+        raise SystemExit(1)
+
+    if export_glb and export_usdz:
+        console_err.print(
+            "[bold red]Errore:[/bold red] Specificare solo uno tra "
+            "--export-glb e --export-usdz."
+        )
+        raise SystemExit(1)
+
     console.print(
         Panel(
             f"[bold]Modello:[/bold] {effective_model}\n"
             f"[bold]Ollama URL:[/bold] {effective_url}\n"
             f"[bold]Max retry:[/bold] {effective_retries}\n"
-            f"[bold]Output:[/bold] {output}",
+            f"[bold]Output JSON:[/bold] {output}\n"
+            f"[bold]Export GLB:[/bold] {export_glb}\n"
+            f"[bold]Export USDZ:[/bold] {export_usdz}",
             title="[cyan]Configurazione Pipeline[/cyan]",
             border_style="cyan",
         )
@@ -170,9 +221,7 @@ def generate(  # noqa: PLR0913
                 "usare --interactive o --file.",
             )
             raise SystemExit(1)
-
         scene_description = handler.get_description()
-
     except (ValueError, FileNotFoundError) as exc:
         console_err.print(f"[bold red]Errore input:[/bold red] {exc}")
         raise SystemExit(1) from exc
@@ -196,11 +245,11 @@ def generate(  # noqa: PLR0913
         )
     except OllamaConnectionError as exc:
         console_err.print(
-            f"[bold red]Errore nella connessione a Ollama:[/bold red] {exc}",
+            f"[bold red]Errore connessione Ollama:[/bold red] {exc}",
         )
         console.print(
-            "\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
-            "[bold]ollama serve[/bold] e scaricare il modello con "
+            f"\n[yellow]Suggerimento:[/yellow] Avviare Ollama con "
+            f"[bold]ollama serve[/bold] e scaricare il modello con "
             f"[bold]ollama pull {effective_model}[/bold]."
         )
         raise SystemExit(1) from exc
@@ -209,18 +258,19 @@ def generate(  # noqa: PLR0913
         raise SystemExit(1) from exc
 
     # Salvataggio JSON
+    import json as _json  # noqa: PLC0415
+
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_data = [obj.model_dump() for obj in objects]
-
     with output_path.open("w", encoding="utf-8") as fp:
-        json.dump(output_data, fp, indent=2, ensure_ascii=False)
+        _json.dump(output_data, fp, indent=2, ensure_ascii=False)
 
     console.print(
         Panel(
             f"[bold green]✓[/bold green] JSON salvato in: "
             f"[cyan]{output_path.resolve()}[/cyan]\n\n"
-            f"[dim]Passo successivo — costruisci la scena in Blender:[/dim]\n"
+            f"[dim]Passo successivo --- costruisci la scena in Blender:[/dim]\n"
             f"[bold]blender --background --python scripts/blender_runner.py -- "
             f"{output_path}[/bold]",
             title="[green]Pipeline Completata[/green]",
@@ -240,14 +290,19 @@ def generate(  # noqa: PLR0913
             "--",
             str(output_path),
         ]
+
         if render:
             cmd += ["--render", render_output]
+
+        if export_glb:
+            cmd += ["--export-3d", export_output, "--export-format", "glb"]
+        elif export_usdz:
+            cmd += ["--export-3d", export_output, "--export-format", "usdz"]
 
         console.print(
             f"\n[bold yellow]Lancio Blender...[/bold yellow]\n"
             f"[dim]{' '.join(cmd)}[/dim]"
         )
-
         result = subprocess.run(cmd, check=False)  # noqa: S603
         if result.returncode != 0:
             console_err.print(
@@ -259,8 +314,17 @@ def generate(  # noqa: PLR0913
             render_path = Path(render_output)
             if render_path.exists():
                 console.print(
-                    f"\n[bold green]✓ Render salvato:[/bold green] "
+                    f"\n[bold green]✓ Render 2D salvato:[/bold green] "
                     f"[cyan]{render_path.resolve()}[/cyan]"
+                )
+
+        if export_glb or export_usdz:
+            fmt = "glb" if export_glb else "usdz"
+            export_path = Path(export_output).with_suffix(f".{fmt}")
+            if export_path.exists():
+                console.print(
+                    f"\n[bold green]✓ Scena 3D esportata ({fmt.upper()}):[/bold green] "
+                    f"[cyan]{export_path.resolve()}[/cyan]"
                 )
 
 

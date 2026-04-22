@@ -116,7 +116,7 @@ class PromptBuilder:
         Carica il prompt di sistema con questa priorità:
         1. Testo esplicito passato come argomento
         2. File .txt specificato
-        3. Prompt di default hardcoded
+        3. Prompt predefinito incluso nel codice
         """
         if prompt_text is not None:
             return prompt_text
@@ -126,7 +126,7 @@ class PromptBuilder:
             if path.exists():
                 return path.read_text(encoding="utf-8").strip()
 
-        # Prova a caricare dal percorso convenzionale del progetto
+        # Tentativo di caricamento dal percorso predefinito del progetto
         default_path = (
             Path(__file__).parent.parent.parent
             / "config"

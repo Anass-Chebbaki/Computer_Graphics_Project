@@ -1,4 +1,3 @@
-# tests/test_config_loader.py
 """Test per il modulo config_loader."""
 
 from __future__ import annotations

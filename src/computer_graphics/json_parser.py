@@ -131,5 +131,5 @@ def _try_aggressive_clean(text: str) -> list[dict] | None:
     # Rimuove virgole finali (trailing commas) prima di ] o }
     cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
 
-    # Prova prima il regex sull'output pulito
+    # Tentativo di estrazione tramite regex sul testo normalizzato
     return _try_regex_extract(cleaned)

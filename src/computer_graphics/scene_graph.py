@@ -1,21 +1,19 @@
 """
-Grafo spaziale della scena 3D con rilevamento collisioni e layout automatico.
+Grafo spaziale della scena 3D con rilevamento collisioni OBB e layout automatico.
 
-Questo modulo implementa un sistema di placement intelligente degli oggetti:
-- Bounding box approssimato per categoria di oggetto
-- Rilevamento e risoluzione automatica delle collisioni
-- Layout semantico basato su relazioni spaziali (vicino, davanti, a sinistra di)
-- Esportazione del grafo come struttura dati per debug e visualizzazione
-
-Rappresenta il valore aggiunto principale della pipeline rispetto a un semplice
-posizionamento casuale.
+Sostituisce AABB con Oriented Bounding Boxes (OBB) per calcoli di intersezione
+precisi rispetto all'orientamento rot_z degli oggetti. Le dimensioni degli asset
+vengono calcolate dinamicamente dalla geometria dei file .obj/.fbx/.glb invece
+di essere lette dal dizionario statico OBJECT_DIMENSIONS.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+import struct
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from computer_graphics.validator import SceneObject
@@ -23,10 +21,9 @@ from computer_graphics.validator import SceneObject
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Bounding box approssimati per categoria (in unità Blender / metri)
+# Dimensioni di fallback (usate solo se il file asset non è disponibile)
 # ---------------------------------------------------------------------------
 OBJECT_DIMENSIONS: dict[str, tuple[float, float, float]] = {
-    # (larghezza_x, profondità_y, altezza_z)
     "table": (1.5, 0.9, 0.75),
     "desk": (1.6, 0.8, 0.75),
     "chair": (0.6, 0.6, 1.0),
@@ -50,158 +47,419 @@ OBJECT_DIMENSIONS: dict[str, tuple[float, float, float]] = {
     "floor": (5.0, 5.0, 0.05),
 }
 
-_DEFAULT_DIMENSION = (0.8, 0.8, 1.0)
+_DEFAULT_DIMENSION: tuple[float, float, float] = (0.8, 0.8, 1.0)
+
+# Cache delle dimensioni calcolate dai file mesh
+_mesh_dimensions_cache: dict[str, tuple[float, float, float]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Calcolo dinamico delle dimensioni dalla mesh
+# ---------------------------------------------------------------------------
+
+
+def compute_mesh_dimensions(
+    asset_path: Path,
+) -> tuple[float, float, float] | None:
+    """Calcola le dimensioni (width_x, depth_y, height_z) analizzando i vertici.
+
+    Supporta i formati .obj, .fbx e .glb/.gltf. Restituisce None se il file
+    non è supportato o si verifica un errore di parsing.
+
+    Args:
+        asset_path: Percorso assoluto al file 3D.
+
+    Returns:
+        Tupla (width_x, depth_y, height_z) in unità Blender, oppure None.
+    """
+    ext = asset_path.suffix.lower()
+    try:
+        if ext == ".obj":
+            return _parse_obj_dimensions(asset_path)
+        if ext in (".glb", ".gltf"):
+            return _parse_glb_dimensions(asset_path)
+        # .fbx è binario proprietario: fallback alle dimensioni statiche
+        logger.debug(
+            "Formato '%s' non supportato per parsing vertici; uso fallback.", ext
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Errore parsing dimensioni da '%s': %s. Uso fallback.", asset_path, exc
+        )
+        return None
+
+
+def _parse_obj_dimensions(
+    path: Path,
+) -> tuple[float, float, float] | None:
+    """Estrae le dimensioni da un file Wavefront OBJ leggendo i vertici 'v'.
+
+    Args:
+        path: Percorso al file .obj.
+
+    Returns:
+        Tupla (width_x, depth_y, height_z) oppure None se nessun vertice trovato.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+
+    with path.open(encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            if not line.startswith("v "):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            xs.append(float(parts[1]))
+            ys.append(float(parts[2]))
+            zs.append(float(parts[3]))
+
+    if not xs:
+        return None
+
+    return (
+        max(xs) - min(xs),
+        max(ys) - min(ys),
+        max(zs) - min(zs),
+    )
+
+
+def _parse_glb_dimensions(
+    path: Path,
+) -> tuple[float, float, float] | None:
+    """Estrae le dimensioni da un file .glb leggendo i min/max degli accessor.
+
+    Legge gli accessor di tipo POSITION dal JSON del chunk 0 del formato
+    GLB binario (header 12 byte + chunk JSON).
+
+    Args:
+        path: Percorso al file .glb.
+
+    Returns:
+        Tupla (width_x, depth_y, height_z) oppure None.
+    """
+    import json as _json  # noqa: PLC0415
+
+    raw = path.read_bytes()
+    if len(raw) < 20:
+        return None
+
+    # Leggi header GLB: magic(4) + version(4) + length(4)
+    magic = raw[:4]
+    if magic != b"glTF":
+        return None
+
+    # Chunk 0: length(4) + type(4) + data
+    chunk0_len = struct.unpack_from("<I", raw, 12)[0]
+    chunk0_type = raw[16:20]
+    if chunk0_type != b"JSON":
+        return None
+
+    json_bytes = raw[20 : 20 + chunk0_len]
+    gltf = _json.loads(json_bytes.decode("utf-8"))
+
+    accessors = gltf.get("accessors", [])
+    global_min = [float("inf")] * 3
+    global_max = [float("-inf")] * 3
+    found = False
+
+    for acc in accessors:
+        if acc.get("type") != "VEC3":
+            continue
+        mn = acc.get("min")
+        mx = acc.get("max")
+        if mn and mx and len(mn) == 3 and len(mx) == 3:
+            for i in range(3):
+                global_min[i] = min(global_min[i], mn[i])
+                global_max[i] = max(global_max[i], mx[i])
+            found = True
+
+    if not found:
+        return None
+
+    return (
+        global_max[0] - global_min[0],
+        global_max[1] - global_min[1],
+        global_max[2] - global_min[2],
+    )
+
+
+def get_asset_dimensions(
+    name: str,
+    assets_dir: Path | None = None,
+) -> tuple[float, float, float]:
+    """Restituisce le dimensioni dell'asset, calcolandole dalla mesh se possibile.
+
+    Strategia di ricerca:
+    1. Cache in memoria per il nome.
+    2. Parsing dei vertici dal file .obj / .glb trovato in assets_dir.
+    3. Fallback al dizionario statico OBJECT_DIMENSIONS.
+    4. Fallback a _DEFAULT_DIMENSION.
+
+    Args:
+        name: Nome normalizzato dell'asset (es. ``"table"``).
+        assets_dir: Directory in cui cercare i file asset.
+
+    Returns:
+        Tupla ``(width_x, depth_y, height_z)`` in unità Blender.
+    """
+    if name in _mesh_dimensions_cache:
+        return _mesh_dimensions_cache[name]
+
+    if assets_dir is not None:
+        for ext in (".obj", ".glb", ".gltf", ".fbx"):
+            candidate = assets_dir / f"{name}{ext}"
+            if candidate.exists():
+                dims = compute_mesh_dimensions(candidate)
+                if dims is not None and all(d > 0 for d in dims):
+                    logger.debug(
+                        "Dimensioni '%s' calcolate da mesh: %.2f x %.2f x %.2f",
+                        name,
+                        *dims,
+                    )
+                    _mesh_dimensions_cache[name] = dims
+                    return dims
+
+    # Fallback statico
+    dims = OBJECT_DIMENSIONS.get(name, _DEFAULT_DIMENSION)
+    _mesh_dimensions_cache[name] = dims
+    return dims
+
+
+# ---------------------------------------------------------------------------
+# Oriented Bounding Box (OBB) 2-D (proiezione XY)
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class BoundingBox:
-    """Bounding box axis-aligned (AABB) di un oggetto nella scena."""
+class OBB:
+    """Oriented Bounding Box 2-D per la proiezione XY della scena.
 
-    cx: float  # centro X
-    cy: float  # centro Y
-    half_w: float  # metà larghezza X
-    half_d: float  # metà profondità Y
+    Attributes:
+        cx: Centro X in unità Blender.
+        cy: Centro Y in unità Blender.
+        half_w: Metà larghezza lungo l'asse locale X dell'oggetto.
+        half_d: Metà profondità lungo l'asse locale Y dell'oggetto.
+        angle: Rotazione attorno a Z in radianti (rot_z dell'oggetto).
+    """
+
+    cx: float
+    cy: float
+    half_w: float
+    half_d: float
+    angle: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Proprietà di compatibilità (usate da get_statistics e _resolve_pair)
+    # ------------------------------------------------------------------
 
     @property
     def x_min(self) -> float:
-        return self.cx - self.half_w
+        """Estremo minimo X dell'AABB che contiene l'OBB."""
+        return self.cx - self._aabb_half_w()
 
     @property
     def x_max(self) -> float:
-        return self.cx + self.half_w
+        """Estremo massimo X dell'AABB che contiene l'OBB."""
+        return self.cx + self._aabb_half_w()
 
     @property
     def y_min(self) -> float:
-        return self.cy - self.half_d
+        """Estremo minimo Y dell'AABB che contiene l'OBB."""
+        return self.cy - self._aabb_half_d()
 
     @property
     def y_max(self) -> float:
-        return self.cy + self.half_d
+        """Estremo massimo Y dell'AABB che contiene l'OBB."""
+        return self.cy + self._aabb_half_d()
 
-    def intersects(self, other: BoundingBox, margin: float = 0.1) -> bool:
-        """
-        Verifica se questo AABB interseca un altro (con margine di sicurezza).
+    def area(self) -> float:
+        """Area della proiezione XY dell'OBB."""
+        return (self.half_w * 2) * (self.half_d * 2)
+
+    # ------------------------------------------------------------------
+    # Metodi privati
+    # ------------------------------------------------------------------
+
+    def _aabb_half_w(self) -> float:
+        cos_a = abs(math.cos(self.angle))
+        sin_a = abs(math.sin(self.angle))
+        return self.half_w * cos_a + self.half_d * sin_a
+
+    def _aabb_half_d(self) -> float:
+        cos_a = abs(math.cos(self.angle))
+        sin_a = abs(math.sin(self.angle))
+        return self.half_w * sin_a + self.half_d * cos_a
+
+    def _axes(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Restituisce i due assi locali dell'OBB (versori unitari)."""
+        cos_a = math.cos(self.angle)
+        sin_a = math.sin(self.angle)
+        return (cos_a, sin_a), (-sin_a, cos_a)
+
+    def _corners(self) -> list[tuple[float, float]]:
+        """Calcola i 4 angoli dell'OBB nello spazio mondo."""
+        ax, ay = self._axes()[0]
+        bx, by = self._axes()[1]
+        return [
+            (
+                self.cx + self.half_w * ax + self.half_d * bx,
+                self.cy + self.half_w * ay + self.half_d * by,
+            ),
+            (
+                self.cx - self.half_w * ax + self.half_d * bx,
+                self.cy - self.half_w * ay + self.half_d * by,
+            ),
+            (
+                self.cx - self.half_w * ax - self.half_d * bx,
+                self.cy - self.half_w * ay - self.half_d * by,
+            ),
+            (
+                self.cx + self.half_w * ax - self.half_d * bx,
+                self.cy + self.half_w * ay - self.half_d * by,
+            ),
+        ]
+
+    def intersects(self, other: OBB, margin: float = 0.1) -> bool:
+        """Verifica intersezione OBB-OBB con il Separating Axis Theorem (SAT).
+
+        Espande entrambi i box del ``margin`` prima del test.
 
         Args:
-            other: Il bounding box da confrontare.
+            other: L'OBB con cui testare l'intersezione.
             margin: Distanza minima di sicurezza in unità Blender.
 
         Returns:
-            True se i due bbox si sovrappongono o sono troppo vicini.
+            ``True`` se i due OBB si sovrappongono o sono più vicini del margine.
         """
-        return (
-            self.x_min - margin < other.x_max
-            and self.x_max + margin > other.x_min
-            and self.y_min - margin < other.y_max
-            and self.y_max + margin > other.y_min
+        # Espansione del margine
+        a = OBB(
+            self.cx,
+            self.cy,
+            self.half_w + margin / 2,
+            self.half_d + margin / 2,
+            self.angle,
+        )
+        b = OBB(
+            other.cx,
+            other.cy,
+            other.half_w + margin / 2,
+            other.half_d + margin / 2,
+            other.angle,
         )
 
-    def area(self) -> float:
-        """Area della proiezione XY del bounding box."""
-        return (self.half_w * 2) * (self.half_d * 2)
+        axes = list(a._axes()) + list(b._axes())
+        corners_a = a._corners()
+        corners_b = b._corners()
+
+        for ax, ay in axes:
+            proj_a = [ax * cx + ay * cy for cx, cy in corners_a]
+            proj_b = [ax * cx + ay * cy for cx, cy in corners_b]
+            if max(proj_a) <= min(proj_b) or max(proj_b) <= min(proj_a):
+                return False  # asse separante trovato
+        return True
+
+
+# ---------------------------------------------------------------------------
+# Nodi e grafo
+# ---------------------------------------------------------------------------
 
 
 @dataclass
 class SceneNode:
-    """Nodo del grafo della scena: un oggetto con metadati spaziali."""
+    """Nodo del grafo della scena: un oggetto con il suo OBB."""
 
     obj: SceneObject
-    bbox: BoundingBox
-    adjusted: bool = False  # True se il posizionamento è stato modificato
+    bbox: OBB
+    adjusted: bool = False
     conflicts_resolved: int = 0
 
 
 @dataclass
 class SceneGraph:
-    """
-    Grafo spaziale della scena 3D.
+    """Grafo spaziale della scena 3D basato su OBB.
 
-    Gestisce il posizionamento degli oggetti garantendo:
-    - Assenza di sovrapposizioni (entro un margine configurabile)
-    - Layout semanticamente coerente
-    - Tracciabilità delle modifiche al posizionamento originale
+    Gestisce il posizionamento degli oggetti garantendo assenza di
+    sovrapposizioni tenendo conto dell'orientamento rot_z.
     """
 
     nodes: list[SceneNode] = field(default_factory=list)
-    safety_margin: float = 0.15  # margine minimo tra oggetti in metri
+    safety_margin: float = 0.15
+    assets_dir: Path | None = None
 
     def add_object(self, obj: SceneObject) -> SceneNode:
-        """
-        Aggiunge un oggetto al grafo e calcola il suo bounding box.
+        """Aggiunge un oggetto al grafo calcolando il suo OBB.
+
+        Le dimensioni vengono calcolate dinamicamente dalla mesh se
+        ``assets_dir`` è impostato, altrimenti si usano i valori statici.
 
         Args:
-            obj: SceneObject Pydantic da aggiungere.
+            obj: ``SceneObject`` Pydantic da aggiungere.
 
         Returns:
-            Il nodo creato (con posizione eventualmente aggiustata).
+            Il nodo creato.
         """
-        dims = OBJECT_DIMENSIONS.get(obj.name, _DEFAULT_DIMENSION)
-
-        # Applica scala al bounding box
+        dims = get_asset_dimensions(obj.name, self.assets_dir)
         half_w = (dims[0] * obj.scale) / 2.0
         half_d = (dims[1] * obj.scale) / 2.0
 
-        # Ruota il bbox se rot_z è significativo
-        if abs(obj.rot_z) > 0.1:
-            half_w, half_d = self._rotate_bbox(half_w, half_d, obj.rot_z)
-
-        bbox = BoundingBox(cx=obj.x, cy=obj.y, half_w=half_w, half_d=half_d)
-        node = SceneNode(obj=obj, bbox=bbox)
+        obb = OBB(
+            cx=obj.x,
+            cy=obj.y,
+            half_w=half_w,
+            half_d=half_d,
+            angle=obj.rot_z,
+        )
+        node = SceneNode(obj=obj, bbox=obb)
         self.nodes.append(node)
         return node
 
     def resolve_collisions(self, max_iterations: int = 10) -> list[SceneObject]:
-        """
-        Risolve le collisioni spostando gli oggetti in conflitto.
+        """Risolve le collisioni OBB spostando gli oggetti in conflitto.
 
-        Strategia iterativa:
-        1. Ordina per area bounding box (oggetti grandi hanno priorità di posizione)
-        2. Per ogni coppia in conflitto, sposta il più piccolo
-        3. Ripete fino a nessun conflitto o max_iterations
+        Ordina per area decrescente (oggetti grandi mantengono la posizione)
+        e itera fino a nessun conflitto o ``max_iterations``.
 
         Args:
             max_iterations: Numero massimo di iterazioni di risoluzione.
 
         Returns:
-            Lista di SceneObject con posizioni aggiornate.
+            Lista di ``SceneObject`` con posizioni aggiornate.
         """
-        # Ordina per area decrescente: oggetti grandi mantengono posizione
         self.nodes.sort(key=lambda n: n.bbox.area(), reverse=True)
 
         for iteration in range(max_iterations):
             conflicts_found = False
-
             for i, node_a in enumerate(self.nodes):
                 for node_b in self.nodes[i + 1 :]:
                     if node_a.bbox.intersects(node_b.bbox, self.safety_margin):
                         conflicts_found = True
                         self._resolve_pair(node_a, node_b)
-
             if not conflicts_found:
-                logger.debug("Collisioni risolte in %d iterazioni.", iteration + 1)
+                logger.debug("Collisioni OBB risolte in %d iterazioni.", iteration + 1)
                 break
         else:
             logger.warning(
-                "Risoluzione collisioni terminata dopo %d iterazioni "
-                "(potrebbero esistere ancora sovrapposizioni).",
+                "Risoluzione OBB terminata dopo %d iterazioni "
+                "(potrebbero esistere sovrapposizioni residue).",
                 max_iterations,
             )
 
-        # Aggiorna SceneObject con nuove posizioni
         return self._export_objects()
 
     def get_statistics(self) -> dict[str, Any]:
-        """
-        Restituisce statistiche sul layout della scena.
+        """Restituisce statistiche sul layout della scena.
 
         Returns:
-            Dizionario con metriche sul layout.
+            Dizionario con metriche sul layout (oggetti totali, aggiustati,
+            dimensioni della scena).
         """
         total = len(self.nodes)
         adjusted = sum(1 for n in self.nodes if n.adjusted)
         total_conflicts_resolved = sum(n.conflicts_resolved for n in self.nodes)
 
-        # Calcola bounding box complessivo della scena
         if self.nodes:
             all_x = [n.bbox.x_min for n in self.nodes] + [
                 n.bbox.x_max for n in self.nodes
@@ -234,30 +492,21 @@ class SceneGraph:
     # Metodi privati
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _rotate_bbox(half_w: float, half_d: float, rot_z: float) -> tuple[float, float]:
-        """
-        Calcola il bounding box ruotato (AABB del bbox ruotato).
-
-        Per una rotazione attorno a Z, il nuovo AABB è il box che contiene
-        i 4 angoli del box originale ruotato.
-        """
-        cos_a = abs(math.cos(rot_z))
-        sin_a = abs(math.sin(rot_z))
-        new_half_w = half_w * cos_a + half_d * sin_a
-        new_half_d = half_w * sin_a + half_d * cos_a
-        return new_half_w, new_half_d
-
     def _resolve_pair(self, node_a: SceneNode, node_b: SceneNode) -> None:
-        """
-        Risolve la collisione tra due nodi spostando il più piccolo.
+        """Risolve la collisione tra due nodi spostando il più piccolo (node_b).
 
-        Strategia: sposta lungo la direzione di minima penetrazione.
-        """
-        # node_a è sempre più grande (per ordinamento precedente)
-        # Sposta node_b
+        Usa la direzione centro-centro per calcolare lo spostamento minimo.
 
-        # Direzione di separazione minima (MDV - Minimum Displacement Vector)
+        Args:
+            node_a: Nodo fisso (più grande per area).
+            node_b: Nodo da spostare.
+        """
+        dx = node_b.bbox.cx - node_a.bbox.cx
+        dy = node_b.bbox.cy - node_a.bbox.cy
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        # Stima della penetrazione lungo la direzione centro-centro
+        # usando le proiezioni AABB come approssimazione
         overlap_x = min(
             node_a.bbox.x_max - node_b.bbox.x_min,
             node_b.bbox.x_max - node_a.bbox.x_min,
@@ -267,29 +516,20 @@ class SceneGraph:
             node_b.bbox.y_max - node_a.bbox.y_min,
         )
 
-        # Sposta nella direzione di minima sovrapposizione
-        if overlap_x < overlap_y:
-            # Sposta lungo X
-            if node_b.bbox.cx < node_a.bbox.cx:
-                delta_x = -(overlap_x + self.safety_margin)
-            else:
-                delta_x = overlap_x + self.safety_margin
-            node_b.bbox.cx += delta_x
+        if dist > 1e-6:
+            # Sposta lungo la direzione centro-centro della quantità necessaria
+            push = max(overlap_x, overlap_y) + self.safety_margin
+            node_b.bbox.cx += (dx / dist) * push
+            node_b.bbox.cy += (dy / dist) * push
         else:
-            # Sposta lungo Y
-            if node_b.bbox.cy < node_a.bbox.cy:
-                delta_y = -(overlap_y + self.safety_margin)
-            else:
-                delta_y = overlap_y + self.safety_margin
-            node_b.bbox.cy += delta_y
+            # Oggetti coincidenti: sposta lungo X
+            node_b.bbox.cx += overlap_x + self.safety_margin
 
         node_b.adjusted = True
         node_b.conflicts_resolved += 1
         logger.debug(
-            "Collisione risolta: '%s' spostato da (%.2f, %.2f) a (%.2f, %.2f).",
+            "OBB collision resolved: '%s' moved to (%.2f, %.2f).",
             node_b.obj.name,
-            node_b.obj.x,
-            node_b.obj.y,
             node_b.bbox.cx,
             node_b.bbox.cy,
         )
@@ -298,7 +538,6 @@ class SceneGraph:
         """Esporta i nodi come lista di SceneObject con posizioni aggiornate."""
         result = []
         for node in self.nodes:
-            # Aggiorna le coordinate dell'oggetto se il bbox è stato spostato
             updated = node.obj.model_copy(
                 update={
                     "x": round(node.bbox.cx, 4),
@@ -309,33 +548,38 @@ class SceneGraph:
         return result
 
 
-def apply_scene_graph(objects: list[SceneObject]) -> list[SceneObject]:
-    """
-    Funzione di convenienza: applica il grafo spaziale a una lista di oggetti.
+# ---------------------------------------------------------------------------
+# Funzione di convenienza
+# ---------------------------------------------------------------------------
 
-    Questa è la funzione da chiamare dall'orchestratore per garantire
-    un layout senza collisioni prima di passare i dati a Blender.
+
+def apply_scene_graph(
+    objects: list[SceneObject],
+    assets_dir: Path | None = None,
+) -> list[SceneObject]:
+    """Applica il grafo spaziale OBB a una lista di oggetti.
 
     Args:
-        objects: Lista di SceneObject validati dall'orchestratore.
+        objects: Lista di ``SceneObject`` validati dall'orchestratore.
+        assets_dir: Directory degli asset per il calcolo dinamico delle dimensioni.
 
     Returns:
-        Lista di SceneObject con posizioni eventualmente aggiustate.
+        Lista di ``SceneObject`` con posizioni eventualmente aggiustate.
     """
     if not objects:
         return objects
 
-    graph = SceneGraph()
+    graph = SceneGraph(assets_dir=assets_dir)
     for obj in objects:
         graph.add_object(obj)
 
     adjusted = graph.resolve_collisions()
-
     stats = graph.get_statistics()
+
     if stats["adjusted_objects"] > 0:
         logger.info(
-            "Scene graph: %d/%d oggetti riposizionati per evitare collisioni. "
-            "Scena: %.1f m × %.1f m.",
+            "Scene graph (OBB): %d/%d oggetti riposizionati. "
+            "Scena: %.1f m x %.1f m.",
             stats["adjusted_objects"],
             stats["total_objects"],
             stats["scene_width_m"],
@@ -343,7 +587,8 @@ def apply_scene_graph(objects: list[SceneObject]) -> list[SceneObject]:
         )
     else:
         logger.info(
-            "Scene graph: nessuna collisione rilevata. " "Scena: %.1f m × %.1f m.",
+            "Scene graph (OBB): nessuna collisione rilevata. "
+            "Scena: %.1f m x %.1f m.",
             stats["scene_width_m"],
             stats["scene_depth_m"],
         )
