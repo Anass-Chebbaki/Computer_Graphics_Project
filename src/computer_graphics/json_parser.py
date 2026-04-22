@@ -78,6 +78,9 @@ def _try_direct_parse(text: str) -> list[dict] | None:
         data = json.loads(text.strip())
         if isinstance(data, list):
             return data
+        # Wrappa un oggetto singolo in una lista
+        if isinstance(data, dict):
+            return [data]
     except (json.JSONDecodeError, ValueError):
         pass
     return None
