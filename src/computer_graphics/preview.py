@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+
 if TYPE_CHECKING:
     from computer_graphics.validator import SceneObject
 

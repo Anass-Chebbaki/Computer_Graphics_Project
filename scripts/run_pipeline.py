@@ -19,12 +19,14 @@ import click
 from rich.console import Console
 from rich.logging import RichHandler
 
+
 # Aggiunge src al path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from computer_graphics.input_handler import InputHandler  # noqa: E402
 from computer_graphics.ollama_client import OllamaConnectionError  # noqa: E402
 from computer_graphics.orchestrator import generate_scene_objects  # noqa: E402
+
 
 console = Console()
 err_console = Console(file=sys.stderr, style="red")

@@ -20,6 +20,7 @@ import site
 import sys
 from pathlib import Path
 
+
 # ---------------------------------------------------------------------------
 # CONFIG (modifica qui se esegui dall'editor interno di Blender)
 # ---------------------------------------------------------------------------

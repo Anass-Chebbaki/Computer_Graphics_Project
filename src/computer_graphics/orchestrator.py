@@ -18,6 +18,7 @@ from computer_graphics.llm_client import LLMConnectionError, get_llm_client
 from computer_graphics.prompt_builder import PromptBuilder
 from computer_graphics.validator import SceneObject, validate_objects
 
+
 logger = logging.getLogger(__name__)
 console = Console()
 

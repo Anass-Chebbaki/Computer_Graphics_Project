@@ -15,7 +15,7 @@ def mock_objects() -> list[SceneObject]:
     return [
         SceneObject(name="table", x=0.0, y=0.0, z=0.0, scale=1.0),
         SceneObject(name="chair", x=2.0, y=0.0, z=0.0, scale=0.5, parent="table"),
-        SceneObject(name="lamp", x=-2.0, y=1.0, z=0.0, scale=0.3, light_type="POINT"),
+        SceneObject(name="lamp", x=-2.0, y=1.0, z=0.0, scale=0.3),
     ]
 
 
@@ -80,3 +80,25 @@ def test_generate_2d_preview_save_error(
         pytest.raises(RuntimeError, match="Save failed"),
     ):
         generate_2d_preview(mock_objects, output_file)
+
+
+def test_generate_2d_preview_with_light_mock(tmp_path: Path) -> None:
+    """Test linea 73: oggetto luce (tramite mock)."""
+    output_file = tmp_path / "preview_light.png"
+    obj = MagicMock()
+    obj.name = "light_1"
+    obj.x = 1.0
+    obj.y = 2.0
+    obj.z = 0.0
+    obj.rot_z = 0.0
+    obj.scale = 1.0
+    obj.parent = None
+    obj.light_type = "POINT"
+
+    with (
+        patch("matplotlib.pyplot.subplots", return_value=(MagicMock(), MagicMock())),
+        patch("matplotlib.pyplot.savefig"),
+        patch("matplotlib.pyplot.close"),
+    ):
+        result = generate_2d_preview([obj], output_file)
+        assert result == output_file

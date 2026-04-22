@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -20,16 +21,16 @@ except ImportError:
 # Formati 3D supportati per l'esportazione
 ExportFormat = Literal["glb", "usdz"]
 
-#RICORDAREEEE DI DECOMMENTARE POIIIIII
+
 def configure_render(
     output_path: str | Path,
-    #resolution_x: int = 1920,
-    #resolution_y: int = 1080,
-    resolution_x = 640,
-    resolution_y = 360,
+    # resolution_x: int = 1920,
+    # resolution_y: int = 1080,
+    resolution_x: int = 640,
+    resolution_y: int = 360,
     samples: int = 64,
-    #engine: str = "CYCLES", MOTORE GRAFICO PIU PERFORMANTE
-    engine: str = "BLENDER_EEVEE", #UTLIZZIAMO QUESTO PER DEBUG AL MOMENTO
+    # engine: str = "CYCLES", MOTORE GRAFICO PIU PERFORMANTE
+    engine: str = "BLENDER_EEVEE",  # UTLIZZIAMO QUESTO PER DEBUG AL MOMENTO
 ) -> None:
     """Configura i parametri di render della scena.
 
@@ -47,7 +48,7 @@ def configure_render(
     scene.render.engine = engine
     scene.render.resolution_x = resolution_x
     scene.render.resolution_y = resolution_y
-    #scene.render.resolution_percentage = 100
+    # scene.render.resolution_percentage = 100
     scene.render.resolution_percentage = 75
     scene.render.filepath = str(output_path)
     scene.render.image_settings.file_format = "PNG"

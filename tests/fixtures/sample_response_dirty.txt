@@ -22,4 +22,3 @@ Certo! Ecco il layout JSON per la scena richiesta:
 ```
 
 Spero che questo layout sia utile per il tuo progetto Blender!
-

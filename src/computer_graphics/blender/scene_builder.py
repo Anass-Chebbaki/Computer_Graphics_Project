@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+
 # Lazy import di bpy e moduli Blender - disponibili solo dentro Blender
 try:
     import bpy  # noqa: F401
@@ -99,7 +100,7 @@ def _setup_lights_from_llm(lights: list[Any]) -> None:
 
         # Colore ed energia
         color_raw = data.get("color", (1.0, 1.0, 1.0))
-        if isinstance(color_raw, (list, tuple)) and len(color_raw) == 3:
+        if isinstance(color_raw, list | tuple) and len(color_raw) == 3:
             bl_light.data.color = (
                 float(color_raw[0]),
                 float(color_raw[1]),
@@ -1218,7 +1219,7 @@ def populate_scene(
         # type: ignore[attr-defined]
         color_override_val = data.get("color_override")
         color_override_tuple: tuple[float, float, float] | None = None
-        if color_override_val and isinstance(color_override_val, (list, tuple)):
+        if color_override_val and isinstance(color_override_val, list | tuple):
             color_override_tuple = (
                 float(color_override_val[0]),
                 float(color_override_val[1]),
@@ -1256,17 +1257,15 @@ def populate_scene(
             logger.error("Errore durante import di '%s': %s", name, exc)
             results["skipped"].append(name)
 
-    
-
     # Applicazione delle relazioni di parentela gerarchica tra gli oggetti
     logger.info("Applicazione gerarchia parent-child...")
     _apply_parent_relationships(name_to_blender, all_objects_data)
 
     # Regolazione della telecamera per l'inquadratura ottimale della scena
     logger.info("Aggiornamento camera sul bounding box della scena...")
-    #setup_camera(imported_objects=imported_blender_objects)
+    # setup_camera(imported_objects=imported_blender_objects)
     setup_camera(location=(4, -4, 3))
-    
+
     from computer_graphics.config_loader import ConfigLoader
 
     if ConfigLoader.get("room_mode", "enabled", default=False):

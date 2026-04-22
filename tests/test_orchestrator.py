@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from computer_graphics.llm_client import LLMConnectionError as OllamaConnectionError
-from computer_graphics.orchestrator import _print_results_table, generate_scene_objects
+from computer_graphics.orchestrator import (
+    _apply_scene_graph_with_collision_check,
+    _print_results_table,
+    generate_scene_objects,
+)
 from computer_graphics.validator import SceneObject
 
 
@@ -116,9 +121,6 @@ class TestPrintResultsTable:
 
 
 # ====== Tests da test_orchestrator_coverage.py ======
-
-
-from unittest.mock import MagicMock  # noqa: E402
 
 
 @patch("computer_graphics.orchestrator.PromptBuilder")
@@ -269,7 +271,7 @@ class TestOrchestratorAdditional:
             patch("computer_graphics.orchestrator.console.print"),
         ):
             # Mock ConfigLoader per restituire "openai"
-            def mock_get_logic(*args: tuple, **kwargs: dict) -> str:  # noqa: ANN401
+            def mock_get_logic(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 if len(args) >= 2 and args[0] == "llm" and args[1] == "provider":
                     return "openai"
                 if len(args) >= 1 and args[0] == "ollama":
@@ -302,7 +304,7 @@ class TestOrchestratorAdditional:
             patch("computer_graphics.orchestrator.console.print"),
         ):
 
-            def mock_get_logic(*args: tuple, **kwargs: dict) -> str:  # noqa: ANN401
+            def mock_get_logic(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
                 if len(args) >= 2 and args[0] == "llm" and args[1] == "provider":
                     return "generic"
                 if len(args) >= 1 and args[0] == "ollama":
@@ -320,3 +322,53 @@ class TestOrchestratorAdditional:
                 match="Provider generic non risponde",
             ):
                 generate_scene_objects("test", verbose=True)
+
+
+class TestOrchestratorCoverageMerged:
+    def test_apply_scene_graph_empty_list(self) -> None:
+        """Test linea 102: lista vuota."""
+        assert _apply_scene_graph_with_collision_check([]) == []
+
+    def test_collision_resolution_worst_pair_logic(self) -> None:
+        """Test linee 125-141 e 328: logica ricerca coppia peggiore e console.print."""
+        with (
+            patch("computer_graphics.orchestrator.get_llm_client") as mock_get_client,
+            patch("computer_graphics.scene_graph.SceneGraph") as mock_class,
+        ):
+            # Mock client per bypassare la chiamata LLM
+            mock_client = mock_get_client.return_value
+            mock_client.health_check.return_value = True
+            mock_client.chat.return_value = (
+                '[{"name": "test"}]'  # Ritorna qualcosa di valido per il parsing
+            )
+
+            mock_graph = mock_class.return_value
+            mock_graph.get_statistics.side_effect = [
+                {  # Primo tentativo: alta densità e tutti aggiustati -> Errore
+                    "total_objects": 10,
+                    "adjusted_objects": 10,
+                    "scene_width_m": 0.5,
+                    "scene_depth_m": 0.5,
+                },
+                {  # Secondo tentativo: bassa densità -> OK
+                    "total_objects": 1,
+                    "adjusted_objects": 0,
+                    "scene_width_m": 10.0,
+                    "scene_depth_m": 10.0,
+                },
+            ]
+
+            # Crea 10 nodi fittizi
+            mock_nodes = []
+            for i in range(10):
+                node = MagicMock()
+                node.bbox.cx = 0.1 * i
+                node.bbox.cy = 0.1 * i
+                node.obj.name = f"obj_{i}"
+                mock_nodes.append(node)
+            mock_graph.nodes = mock_nodes
+
+            mock_graph.resolve_collisions.return_value = []
+
+            res = generate_scene_objects("desc", verbose=True, max_retries=2)
+            assert len(res) == 0

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import struct
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -11,7 +13,11 @@ from computer_graphics.scene_graph import (
     _DEFAULT_DIMENSION,
     OBB,
     SceneGraph,
+    _parse_glb_dimensions,
+    _parse_obj_dimensions,
     apply_scene_graph,
+    clear_mesh_dimensions_cache,
+    compute_mesh_dimensions,
 )
 from computer_graphics.validator import SceneObject
 
@@ -392,3 +398,87 @@ class TestMeshParsing:
         _mesh_dimensions_cache.clear()
         dims = get_asset_dimensions("table", assets_dir=tmp_path)
         assert dims == (1.0, 1.0, 1.0)
+
+
+class TestSceneGraphCoverageMerged:
+    def test_parse_obj_dimensions_invalid_line(self, tmp_path: Path) -> None:
+        """Test linea 116: riga 'v' con pochi elementi."""
+        obj_file = tmp_path / "test.obj"
+        obj_file.write_text("v 1.0 2.0\n", encoding="utf-8")  # Manca z
+        assert _parse_obj_dimensions(obj_file) is None
+
+    def test_parse_glb_too_small(self, tmp_path: Path) -> None:
+        """Test linea 149: file troppo piccolo."""
+        glb_file = tmp_path / "test.glb"
+        glb_file.write_bytes(b"too small")
+        assert _parse_glb_dimensions(glb_file) is None
+
+    def test_parse_glb_invalid_magic(self, tmp_path: Path) -> None:
+        """Test linea 154: magic incorrect."""
+        glb_file = tmp_path / "test.glb"
+        glb_file.write_bytes(b"NOT_GLTF" + b"\x00" * 20)
+        assert _parse_glb_dimensions(glb_file) is None
+
+    def test_parse_glb_with_json_chunk(self, tmp_path: Path) -> None:
+        """Test linea 166: ricerca chunk JSON nel GLB."""
+        glb_file = tmp_path / "test.glb"
+        # Header (12) + Chunk1 (8+len) + Chunk2 (8+len)
+        # Chunk 1: BIN (ignora)
+        chunk1_head = struct.pack("<I4s", 4, b"BIN\x00")
+        chunk1_data = b"abcd"
+        # Chunk 2: JSON
+        json_data = b'{"accessors": [{"type": "VEC3", "min": [0,0,0], "max": [1,1,1]}]}'
+        chunk2_head = struct.pack("<I4s", len(json_data), b"JSON")
+
+        glb_content = (
+            b"glTF"
+            + struct.pack("<II", 2, 12 + 12 + len(json_data))
+            + chunk1_head
+            + chunk1_data
+            + chunk2_head
+            + json_data
+        )
+        glb_file.write_bytes(glb_content)
+
+        res = _parse_glb_dimensions(glb_file)
+        assert res == (1.0, 1.0, 1.0)
+
+    def test_parse_glb_no_vec3(self, tmp_path: Path) -> None:
+        """Test linea 178: accessor non VEC3."""
+        glb_file = tmp_path / "test.glb"
+        json_data = b'{"accessors": [{"type": "SCALAR"}]}'
+        chunk_head = struct.pack("<I4s", len(json_data), b"JSON")
+        glb_content = (
+            b"glTF"
+            + struct.pack("<II", 2, 12 + 8 + len(json_data))
+            + chunk_head
+            + json_data
+        )
+        glb_file.write_bytes(glb_content)
+        assert _parse_glb_dimensions(glb_file) is None
+
+    def test_parse_glb_no_json(self, tmp_path: Path) -> None:
+        """Test linea 169: nessun chunk JSON."""
+        glb_file = tmp_path / "test.glb"
+        chunk_head = struct.pack("<I4s", 4, b"BIN\x00")
+        glb_content = b"glTF" + struct.pack("<II", 2, 12 + 8 + 4) + chunk_head + b"data"
+        glb_file.write_bytes(glb_content)
+        assert _parse_glb_dimensions(glb_file) is None
+
+    def test_compute_mesh_dimensions_unsupported_ext(self) -> None:
+        """Test linea 85: formato non supportato."""
+        res = compute_mesh_dimensions(Path("test.txt"))
+        assert res is None
+
+    def test_compute_mesh_dimensions_exception(self) -> None:
+        """Test linea 89: gestione eccezioni."""
+        with patch(
+            "computer_graphics.scene_graph._parse_obj_dimensions",
+            side_effect=ValueError("fail"),
+        ):
+            res = compute_mesh_dimensions(Path("test.obj"))
+            assert res is None
+
+    def test_clear_cache(self) -> None:
+        """Test linea 244-245."""
+        clear_mesh_dimensions_cache()

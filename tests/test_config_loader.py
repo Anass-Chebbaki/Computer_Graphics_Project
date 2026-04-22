@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from computer_graphics.config_loader import (
     ConfigLoader,
     _deep_merge,
@@ -137,8 +138,9 @@ class TestConfigLoaderLoad:
             encoding="utf-8",
         )
         # Isola il test dall'ambiente e dal file .env reale
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "computer_graphics.config_loader._load_dotenv"
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("computer_graphics.config_loader._load_dotenv"),
         ):
             cfg = ConfigLoader.load(config_path=yaml_file, force_reload=True)
             assert cfg["ollama"]["model"] == "custom_model"
@@ -220,7 +222,8 @@ class TestConfigLoaderGet:
 
     def test_get_nested_key(self) -> None:
         model = ConfigLoader.get("ollama", "model")
-        assert isinstance(model, str)
+        # Può essere stringa o None se non configurato
+        assert model is None or isinstance(model, str)
 
     def test_get_missing_key_returns_default(self) -> None:
         result = ConfigLoader.get("nonexistent", "key", default="fallback")

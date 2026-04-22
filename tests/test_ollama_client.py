@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import responses as resp_mock
-from requests.exceptions import ReadTimeout, RequestException
+from requests.exceptions import ConnectionError, ReadTimeout, RequestException
 
 from computer_graphics.ollama_client import (
     OllamaClient,
@@ -30,7 +32,7 @@ class TestOllamaClientExtended:
             base_url=self.BASE_URL, timeout=1, max_connection_retries=1
         )
         with pytest.raises(OllamaConnectionError, match="Timeout"):
-            client.chat({"model": "llama3", "messages": [], "stream": False})
+            client.chat(messages=[], model="llama3", stream=False)
 
     def test_chat_raises_on_request_exception(self) -> None:
         """Copre RequestException generico -> OllamaConnectionError."""
@@ -41,7 +43,7 @@ class TestOllamaClientExtended:
         )
         client = OllamaClient(base_url=self.BASE_URL, max_connection_retries=1)
         with pytest.raises(OllamaConnectionError, match="Errore HTTP"):
-            client.chat({"model": "llama3", "messages": [], "stream": False})
+            client.chat(messages=[], model="llama3", stream=False)
 
     def test_chat_retries_on_connection_error(self) -> None:
         """Copre la logica di retry con ConnectionError."""
@@ -67,7 +69,7 @@ class TestOllamaClientExtended:
             max_connection_retries=2,
             retry_delay=0.0,
         )
-        result = client.chat({"model": "llama3", "messages": [], "stream": False})
+        result = client.chat(messages=[], model="llama3", stream=False)
         assert "table" in result
 
     def test_chat_raises_connection_error_after_all_retries(self) -> None:
@@ -84,7 +86,7 @@ class TestOllamaClientExtended:
             retry_delay=0.0,
         )
         with pytest.raises(OllamaConnectionError, match="Impossibile connettersi"):
-            client.chat({"model": "llama3", "messages": [], "stream": False})
+            client.chat(messages=[], model="llama3", stream=False)
 
     def test_list_models_raises_on_connection_error(self) -> None:
         """Copre list_models con RequestException."""
@@ -107,7 +109,7 @@ class TestOllamaClientExtended:
         )
         client = OllamaClient(base_url=self.BASE_URL)
         with pytest.raises(OllamaResponseError):
-            client.chat({"model": "llama3", "messages": [], "stream": False})
+            client.chat(messages=[], model="llama3", stream=False)
 
     def test_extract_content_raises_on_non_string_content(self) -> None:
         """Copre _extract_content quando content non è stringa."""
@@ -119,7 +121,7 @@ class TestOllamaClientExtended:
         )
         client = OllamaClient(base_url=self.BASE_URL)
         with pytest.raises(OllamaResponseError):
-            client.chat({"model": "llama3", "messages": [], "stream": False})
+            client.chat(messages=[], model="llama3", stream=False)
 
     def test_health_check_returns_false_on_non_200(self) -> None:
         """Health check con status != 200."""
@@ -151,11 +153,6 @@ class TestOllamaClientExtended:
 # ====== Tests da test_ollama_client_coverage.py ======
 
 
-from unittest.mock import MagicMock, patch  # noqa: E402
-
-from requests.exceptions import ConnectionError  # noqa: E402, F401
-
-
 class TestOllamaClientChatExceptionsMock:
     @patch("computer_graphics.ollama_client.requests.post")
     def test_connection_error_retries_and_fails(self, mock_post: MagicMock) -> None:
@@ -165,7 +162,7 @@ class TestOllamaClientChatExceptionsMock:
         with pytest.raises(
             OllamaConnectionError, match="Impossibile connettersi a Ollama"
         ):
-            client.chat({"model": "test"})
+            client.chat(messages=[], model="test")
 
         assert mock_post.call_count == 2
 
@@ -175,7 +172,7 @@ class TestOllamaClientChatExceptionsMock:
         client = OllamaClient(max_connection_retries=2, retry_delay=0.1)
 
         with pytest.raises(OllamaConnectionError, match="Timeout dopo"):
-            client.chat({"model": "test"})
+            client.chat(messages=[], model="test")
 
     @patch("computer_graphics.ollama_client.requests.post")
     def test_request_exception(self, mock_post: MagicMock) -> None:
@@ -183,7 +180,7 @@ class TestOllamaClientChatExceptionsMock:
         client = OllamaClient(max_connection_retries=2, retry_delay=0.1)
 
         with pytest.raises(OllamaConnectionError, match="Errore HTTP"):
-            client.chat({"model": "test"})
+            client.chat(messages=[], model="test")
 
     @staticmethod
     def test_extract_content_key_error() -> None:
@@ -251,7 +248,7 @@ class TestOllamaClientAdditional:
         mock_post.return_value = mock_response
 
         client = OllamaClient()
-        result = client.chat({"model": "test", "messages": []})
+        result = client.chat(messages=[], model="test")
         assert result == "test response"
 
     @patch("computer_graphics.ollama_client.requests.post")
@@ -265,4 +262,46 @@ class TestOllamaClientAdditional:
 
         client = OllamaClient()
         with pytest.raises(OllamaConnectionError):
-            client.chat({"model": "test", "messages": []})
+            client.chat(messages=[], model="test")
+
+    @patch("computer_graphics.ollama_client.requests.post")
+    def test_chat_json_format_support(self, mock_post: MagicMock) -> None:
+        """Verifica il supporto al parametro response_format='json'."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "message": {"role": "assistant", "content": "{}"}
+        }
+        mock_post.return_value = mock_response
+
+        client = OllamaClient()
+        client.chat(messages=[], response_format="json")
+
+        # Verifica che 'format': 'json' sia stato aggiunto al payload
+        args, kwargs = mock_post.call_args
+        assert kwargs["json"]["format"] == "json"
+
+    @patch("computer_graphics.ollama_client.requests.post")
+    def test_chat_streaming_fallback(self, mock_post: MagicMock) -> None:
+        """Verifica il fallback su parsing manuale se response.json() fallisce."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("Not a JSON")
+        mock_response.text = (
+            '{"message": {"role": "assistant", "content": "chunk1"}}\n'
+            '{"message": {"role": "assistant", "content": "chunk2"}}\n'
+        )
+        mock_post.return_value = mock_response
+
+        client = OllamaClient()
+        result = client.chat(messages=[])
+        assert result == "chunk1chunk2"
+
+    @patch("computer_graphics.ollama_client.requests.get")
+    def test_health_check_success(self, mock_get: MagicMock) -> None:
+        """Verifica health_check con successo (status 200)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+        client = OllamaClient()
+        assert client.health_check() is True

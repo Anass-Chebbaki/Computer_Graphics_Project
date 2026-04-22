@@ -15,6 +15,7 @@ import math
 import re
 from pathlib import Path
 
+
 logger = logging.getLogger(__name__)
 
 # Formati asset supportati in ordine di priorità

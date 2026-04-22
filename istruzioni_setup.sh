@@ -214,7 +214,7 @@ echo ""
 if command -v pre-commit &> /dev/null; then
     pre-commit install
     log_ok "Pre-commit hooks installati"
-    
+
     echo ""
     log_info "Esecuzione del primo check su tutti i file..."
     pre-commit run --all-files || log_warning "Alcuni file potrebbero richiedere aggiornamenti"

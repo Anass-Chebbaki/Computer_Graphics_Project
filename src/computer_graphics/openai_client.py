@@ -15,13 +15,10 @@ from requests.exceptions import ConnectionError, ReadTimeout, RequestException
 
 from computer_graphics.llm_client import (
     BaseLLMClient,
-)
-from computer_graphics.llm_client import (
     LLMConnectionError as OpenAIConnectionError,
-)
-from computer_graphics.llm_client import (
     LLMResponseError as OpenAIResponseError,
 )
+
 
 logger = logging.getLogger(__name__)
 

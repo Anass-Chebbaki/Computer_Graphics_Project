@@ -17,6 +17,7 @@ from typing import Any
 
 import yaml
 
+
 logger = logging.getLogger(__name__)
 
 # Percorso default al file di configurazione

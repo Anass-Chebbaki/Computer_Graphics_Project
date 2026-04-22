@@ -19,6 +19,7 @@ from typing import Any
 
 from computer_graphics.validator import SceneObject
 
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

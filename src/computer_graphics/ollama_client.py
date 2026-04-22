@@ -16,13 +16,10 @@ from requests.exceptions import ConnectionError, ReadTimeout, RequestException
 
 from computer_graphics.llm_client import (
     BaseLLMClient,
-)
-from computer_graphics.llm_client import (
     LLMConnectionError as OllamaConnectionError,
-)
-from computer_graphics.llm_client import (
     LLMResponseError as OllamaResponseError,
 )
+
 
 logger = logging.getLogger(__name__)
 

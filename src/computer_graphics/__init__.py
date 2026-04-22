@@ -17,6 +17,7 @@ from computer_graphics.ollama_client import OllamaClient
 from computer_graphics.orchestrator import generate_scene_objects
 from computer_graphics.validator import SceneObject, validate_objects
 
+
 __all__ = [
     "generate_scene_objects",
     "OllamaClient",

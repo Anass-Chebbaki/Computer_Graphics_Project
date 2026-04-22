@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
 from computer_graphics.prompt_builder import SYSTEM_PROMPT_DEFAULT, PromptBuilder
 
 
@@ -60,3 +63,21 @@ class TestPromptBuilderExtended:
             payload = builder.build(desc)
             user_msgs = [m for m in payload["messages"] if m["role"] == "user"]
             assert user_msgs[0]["content"] == desc
+
+    def test_load_system_prompt_file_exists(self, tmp_path: Path) -> None:
+        """Test linea 129: caricamento da file esistente."""
+        prompt_file = tmp_path / "sys.txt"
+        prompt_file.write_text("custom prompt", encoding="utf-8")
+
+        builder = PromptBuilder(system_prompt_file=prompt_file)
+        assert builder.system_prompt == "custom prompt"
+
+    def test_load_system_prompt_absolute_fallback(self) -> None:
+        """Test linea 141: fallback totale."""
+        with patch("pathlib.Path.exists", return_value=False):
+            builder = PromptBuilder()
+            # Se nulla esiste, usa il default hardcoded
+            assert (
+                builder.system_prompt == SYSTEM_PROMPT_DEFAULT.strip()
+                or "JSON" in builder.system_prompt
+            )

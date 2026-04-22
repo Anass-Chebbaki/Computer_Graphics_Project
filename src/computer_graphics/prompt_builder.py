@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+
 # ---------------------------------------------------------------------------
 # Prompt di sistema — può essere caricato da file esterno
 # ---------------------------------------------------------------------------

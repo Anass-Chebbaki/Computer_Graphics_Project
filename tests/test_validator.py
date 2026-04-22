@@ -6,7 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from computer_graphics.validator import (
+    LightObject,
     SceneObject,
+    validate_lights,
     validate_objects,
 )
 
@@ -639,3 +641,62 @@ class TestValidatorAdditional:
             result = generate_scene_objects("Create a simple room", verbose=True)
             assert len(result) == 1
             assert result[0].name == "table"
+
+
+class TestValidatorCoverageMerged:
+    def test_light_object_invalid_color_type(self) -> None:
+        """Test linea 101: colore non tripla."""
+        with pytest.raises(ValueError, match="color"):
+            LightObject(color="red")  # type: ignore
+
+    def test_coerce_numeric_invalid_string(self) -> None:
+        """Test linea 115: stringa non numerica."""
+        with pytest.raises(ValueError, match="Impossibile convertire"):
+            LightObject.coerce_numeric("abc")
+
+    def test_coerce_numeric_invalid_type(self) -> None:
+        """Test linea 116: tipo non supportato."""
+        with pytest.raises(ValueError, match="Tipo non supportato"):
+            LightObject.coerce_numeric([])
+
+    def test_validate_color_override_none(self) -> None:
+        """Test linea 180: override None."""
+        obj = SceneObject(name="test", color_override=None)
+        assert obj.color_override is None
+
+    def test_normalise_parent_invalid_type(self) -> None:
+        """Test linea 218: parent non stringa."""
+        with pytest.raises(ValueError, match="parent"):
+            SceneObject(name="test", parent=123)  # type: ignore
+
+    def test_validate_color_override_valid(self) -> None:
+        """Test linea 181: override con colore valido."""
+        obj = SceneObject(name="test", color_override=(0.5, 0.5, 0.5))
+        assert obj.color_override == (0.5, 0.5, 0.5)
+
+    def test_reasonable_bounds_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test linee 250, 259: warning rotazione e scala."""
+        SceneObject(name="test", rot_x=20.0, scale=200.0)
+        assert "rotazione rot_x" in caplog.text
+        assert "scala 200.00 fuori scala" in caplog.text
+
+    def test_validate_objects_exception_handling(self) -> None:
+        """Test linea 335-336: eccezione durante creazione SceneObject."""
+        # Passiamo un dict che fallisce la validazione
+        raw = [{"name": "test", "scale": -1.0}]
+        # validate_objects cattura l'eccezione internamente e la logga/raccoglie
+        with pytest.raises(ValueError, match="Nessun oggetto valido estratto"):
+            validate_objects(raw)
+
+    def test_validate_lights_empty(self) -> None:
+        """Test linea 368: lista luci vuota."""
+        assert validate_lights([]) == []
+
+    def test_validate_lights_exception_handling(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test linea 378-379: eccezione in validate_lights."""
+        raw = [{"name": "light", "energy": -10.0}]
+        res = validate_lights(raw)
+        assert len(res) == 0
+        assert "Luce #0" in caplog.text

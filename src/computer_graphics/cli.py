@@ -26,6 +26,7 @@ from computer_graphics.input_handler import InputHandler
 from computer_graphics.llm_client import LLMConnectionError
 from computer_graphics.orchestrator import generate_scene_objects
 
+
 console = Console()
 console_err = Console(file=sys.stderr)
 
