@@ -1,5 +1,4 @@
-"""Astrazione dei client LLM per supportare diversi provider (Ollama, OpenAI, ecc.)."""
-
+"""Astrazione dei client LLM per supportare diversi provider (Ollama, OpenAI, Gemini)."""
 from __future__ import annotations
 
 import logging
@@ -38,12 +37,10 @@ class BaseLLMClient(ABC):
         Returns:
             Testo della risposta.
         """
-        pass
 
     @abstractmethod
     def health_check(self) -> bool:
-        """Verifica se il servizio è raggiungibile."""
-        pass
+        """Verifica se il servizio e raggiungibile."""
 
 
 def get_llm_client(provider: str, **kwargs: Any) -> BaseLLMClient:
@@ -51,11 +48,14 @@ def get_llm_client(provider: str, **kwargs: Any) -> BaseLLMClient:
     Factory per istanziare il client LLM corretto.
 
     Args:
-        provider: Nome del provider ("ollama", "openai").
+        provider: Nome del provider (``"ollama"``, ``"openai"``, ``"gemini"``).
         **kwargs: Argomenti per il costruttore del client.
 
     Returns:
         Istanza di BaseLLMClient.
+
+    Raises:
+        ValueError: Se il provider non e supportato.
     """
     provider = provider.lower()
 
@@ -69,4 +69,9 @@ def get_llm_client(provider: str, **kwargs: Any) -> BaseLLMClient:
 
         return OpenAIClient(**kwargs)
 
-    raise ValueError(f"Provider LLM non supportato: {provider}")
+    if provider == "gemini":
+        from computer_graphics.gemini_client import GeminiClient
+
+        return GeminiClient(**kwargs)
+
+    raise ValueError(f"Provider LLM non supportato: {provider!r}")

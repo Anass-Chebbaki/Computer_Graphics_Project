@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "computer-graphics"
 version = "1.0.0"
-description = "Pipeline automatizzata per la generazione di scene 3D da linguaggio naturale tramite Ollama e Blender"
+description = "Pipeline automatizzata per la generazione di scene 3D da linguaggio naturale tramite LLM (Ollama/Gemini) e Blender"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Computer_Graphics_Group"}
 ]
-keywords = ["blender", "3d", "nlp", "ollama", "scene-generation", "llm"]
+keywords = ["blender", "3d", "nlp", "ollama", "gemini", "scene-generation", "llm", "mllm"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -82,16 +82,16 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors
-    "F",    # pyflakes
-    "W",    # pycodestyle warnings
-    "I",    # isort
-    "N",    # pep8-naming
-    "UP",   # pyupgrade
-    "ANN",  # flake8-annotations
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "SIM",  # flake8-simplify
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
 ]
 ignore = [
     "ANN101",  # Missing type annotation for self (deprecated)
@@ -109,7 +109,6 @@ lines-after-imports = 2
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN"]  # Relax annotations in tests
-
 
 [tool.mypy]
 python_version = "3.10"

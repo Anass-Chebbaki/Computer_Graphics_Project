@@ -32,6 +32,11 @@ _ENV_MAPPING: dict[str, tuple[str, str]] = {
     "RENDER_OUTPUT_DIR": ("paths", "render_output_dir"),
     "MAX_RETRIES": ("pipeline", "max_retries"),
     "LOG_LEVEL": ("pipeline", "log_level"),
+    # Supporta Gemini 3.0 Flash (testo e vision) come provider LLM cloud
+    "GEMINI_API_KEY": ("llm", "api_key"),
+    "LLM_PROVIDER": ("llm", "provider"),
+    "LLM_MODEL": ("llm", "model"),
+    "LLM_API_KEY": ("llm", "api_key"),
 }
 
 _DEFAULT_CONFIG: dict[str, Any] = {
@@ -51,6 +56,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "max_retries": 3,
         "verbose": True,
         "log_level": "INFO",
+        "use_constraint_solver": True,
     },
     "paths": {
         "assets_dir": "assets/models",
@@ -68,6 +74,28 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "min_description_length": 10,
         "max_description_length": 2000,
         "max_coordinate_value": 50.0,
+    },
+    "room_mode": {
+        "enabled": False,
+        "margin": 2.0,
+        "wall_height": 3.0,
+        "ceiling": False,
+    },
+    "llm": {
+        "provider": "gemini",
+        "model": "gemini-3-flash-preview",
+        "api_key": None,
+        "base_url": None,
+    },
+    "poly_haven": {
+        "quality": "2k",
+        "cache_subdir": "polyhaven",
+        "auto_hdri": False,
+        "hdri_category": "indoor",
+    },
+    "critic_loop": {
+        "max_iterations": 2,
+        "convergence_threshold": 0,
     },
 }
 
@@ -177,17 +205,31 @@ class ConfigLoader:
     @classmethod
     def get(cls, *keys: str, default: Any = None) -> Any:
         """
-        Accesso conveniente a un valore annidato.
+        Accesso conveniente a un valore annidato nella configurazione.
+
+        Naviga il dizionario di configurazione seguendo la sequenza di chiavi.
+        Restituisce ``default`` se una qualsiasi chiave non esiste o se
+        il valore intermedio non è un dizionario.
 
         Esempio:
-            ConfigLoader.get("ollama", "model")  # -> "llama3"
+            ConfigLoader.get("ollama", "model")          # -> "llama3"
+            ConfigLoader.get("room_mode", "wall_height") # -> 3.0
         """
         config = cls.load()
-        current = config
+        current: Any = config
+
         for key in keys:
             if not isinstance(current, dict):
                 return default
-            current = current.get(key, default)
+            # Non passare default a dict.get() per distinguere tra
+            # "chiave assente" e "chiave presente con valore None".
+            if key not in current:
+                return default
+            current = current[key]
+
+        # Una chiave può esistere con valore None esplicito nel YAML.
+        # In quel caso restituiamo None (non default), che è il comportamento
+        # corretto: il chiamante ha impostato esplicitamente None.
         return current
 
     @classmethod

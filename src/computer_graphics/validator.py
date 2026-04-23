@@ -159,11 +159,12 @@ class SceneObject(BaseModel):
     )
 
     # Supporto per l'assegnazione di materiali procedurali e semantici.
-    material_semantics: MaterialSemantic | None = Field(
+    # Accetta qualsiasi stringa per non bloccare slug o nomi non previsti.
+    material_semantics: str | None = Field(
         default=None,
         description=(
             "Semantica del materiale per shader procedurali in bpy. "
-            "Valori: 'wood', 'glass', 'fabric', 'metal', 'plastic', ecc."
+            "Esempi: 'wood', 'glass', 'fabric', 'metal', 'plastic', ecc."
         ),
     )
     color_override: tuple[float, float, float] | None = Field(

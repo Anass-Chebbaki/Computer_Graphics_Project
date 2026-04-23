@@ -122,10 +122,17 @@ def _parse_obj_dimensions(
     if not xs:
         return None
 
+    # OBJ è Y-up: l'altezza è rappresentata dalla coordinata Y.
+    # Quando importato in Blender con forward=Y e up=Z, le coordinate
+    # mapperanno (X_obj -> X_blender), (Y_obj -> Z_blender), (Z_obj -> -Y_blender).
+    # Quindi le dimensioni finali saranno:
+    #   width_x = max(xs) - min(xs)
+    #   depth_y = max(zs) - min(zs)
+    #   height_z = max(ys) - min(ys)
     return (
         max(xs) - min(xs),
-        max(ys) - min(ys),
         max(zs) - min(zs),
+        max(ys) - min(ys),
     )
 
 

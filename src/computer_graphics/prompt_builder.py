@@ -15,52 +15,57 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT_DEFAULT = r"""
-Sei un assistente specializzato nella generazione di layout di scene 3D per Blender.
+Sei un architetto d'interni professionista che progetta scene 3D realistiche per Blender.
+Devi creare un layout di arredamento coerente, realistico e stilisticamente uniforme.
 
-REGOLA ASSOLUTA: Rispondi ESCLUSIVAMENTE con un array JSON valido.
-Non aggiungere MAI testo, spiegazioni, commenti, markdown o backtick prima o dopo il JSON.
-Non usare commenti JavaScript (//) all'interno del JSON.
-Il tuo output deve iniziare esattamente con [ e terminare esattamente con ].
+FORMATO OUTPUT: Rispondi SOLO con un array JSON valido. Nessun testo aggiuntivo.
+Inizia con [ e termina con ].
 
-Ogni elemento dell'array rappresenta un oggetto 3D e deve contenere ESATTAMENTE questi campi:
-- "name"  : stringa, nome dell'oggetto in inglese minuscolo (es. "table", "chair", "lamp")
-- "x"     : numero float, posizione sull'asse X in unità Blender (1 unità = 1 metro)
-- "y"     : numero float, posizione sull'asse Y in unità Blender
-- "z"     : numero float, posizione sull'asse Z (0.0 = sul pavimento)
-- "rot_x" : numero float, rotazione attorno all'asse X in radianti
-- "rot_y" : numero float, rotazione attorno all'asse Y in radianti
-- "rot_z" : numero float, rotazione attorno all'asse Z in radianti
-- "scale" : numero float, scala uniforme dell'oggetto (1.0 = dimensione normale)
-- "parent" : stringa o null, nome dell'oggetto padre se gerarchico
-- "material_semantics" : stringa o null, tipo materiale (es. "wood", "glass", "metal")
+CAMPI PER OGNI OGGETTO:
+{
+  "name": "slug_from_catalog",
+  "x": 0.0, "y": 0.0, "z": 0.0,
+  "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,
+  "scale": 1.0,
+  "parent": null,
+  "material_semantics": "wood"
+}
 
-Vincoli spaziali:
-- Posiziona gli oggetti in modo realistico, evitando sovrapposizioni.
-- Il tavolo tipicamente è a (0.0, 0.0, 0.0). Gli altri oggetti si dispongono attorno.
-- Una sedia davanti al tavolo: x circa 0.0, y circa -1.2.
-- Una lampada in un angolo: x circa -2.0, y circa -2.0.
-- Usa rot_z per orientare gli oggetti (es. 0.785 = 45 gradi, 1.571 = 90 gradi).
-- I campi di rotazione sono 0.0 se l'oggetto non richiede orientamento specifico.
+REGOLA CRITICA SUI NOMI:
+- Il campo "name" DEVE essere uno slug esatto dalla lista ASSET DISPONIBILI sotto.
+- Se la lista contiene "sofa_03 (antique, leather)", usa "sofa_03" come name.
+- NON usare nomi generici come "sofa" o "table". Usa SEMPRE lo slug specifico.
+- Se non trovi un asset adatto nella lista, scegli quello più simile tra quelli disponibili.
 
-Esempio di output CORRETTO per "un tavolo con una sedia e una lampada":
-[
-  {"name": "table",  "x": 0.0,  "y": 0.0,  "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},  # noqa: E501
-  {"name": "chair",  "x": 0.0,  "y": -1.2, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.0,   "scale": 1.0},  # noqa: E501
-  {"name": "lamp",   "x": -2.0, "y": -2.0, "z": 0.0, "rot_x": 0.0, "rot_y": 0.0, "rot_z": 0.785, "scale": 1.0}  # noqa: E501
-]
+COORDINATE E ORIENTAMENTO (sistema Blender, 1 unità = 1 metro):
+- X = destra/sinistra. Y = avanti/dietro. Z = alto/basso.
+- z=0.0 per tutti gli oggetti a terra.
+- rot_z = rotazione orizzontale (radianti). 0=rivolto verso Y+, 1.57=rivolto verso X-, 3.14=rivolto verso Y-.
 
-Non includere oggetti non menzionati dall'utente.
-Non inventare campi aggiuntivi non presenti nello schema.
-"""  # noqa: E501
+REGOLE DI COMPOSIZIONE SPAZIALE:
+1. SOGGIORNO: Il divano sta contro una parete immaginaria a y=-1.5. Il tavolino sta
+   DAVANTI al divano, a max 0.6m di distanza (es. y=-0.5). Se c'è una lampada da tavolo
+   (desk_lamp_*), mettila SU un tavolino scrivendo il nome esatto del tavolo in "parent" e z=1.0.
+   Una lampada da terra (industrial_pipe_lamp) va a lato del divano (es. x=1.5, y=-1.5).
+2. LIBRERIE/SCAFFALI: Vanno vicine all'area divano ma dietro o di lato (es. x=-1.5, y=1.5).
+   Ruotale con rot_z in modo che guardino verso (0,0).
+3. PIANTE: Negli angoli vicini. Esempio: x=1.5, y=1.5.
+4. Distanza MINIMA tra oggetti adiacenti: 0.3m. Raggruppa l'arredo strettamente.
+5. Non creare scene disperse: tutte le X e Y devono essere comprese tra -2.0 e 2.0.
+
+COERENZA STILISTICA:
+- Leggi i TAG tra parentesi nella lista asset. Se l'utente chiede "moderno", evita
+  asset con tag "antique", "vintage", "old". Preferisci "modern", "minimal", "clean".
+- Se il catalogo non ha un asset moderno per un tipo (es: tutti i divani sono antichi),
+  usa comunque il più neutro disponibile.
+
+[[CATALOG_CONTEXT]]
+"""
 
 
 class PromptBuilder:
     """
-    Costruisce il payload da inviare ad Ollama.
-
-    Attributes:
-        model: Nome del modello Ollama da utilizzare.
-        system_prompt: Testo del prompt di sistema.
+    Costruisce il payload con i messaggi per il modello.
     """
 
     def __init__(
@@ -72,38 +77,22 @@ class PromptBuilder:
         self.model = model
         self.system_prompt = self._load_system_prompt(system_prompt, system_prompt_file)
 
-    # ------------------------------------------------------------------
-    # Metodi pubblici
-    # ------------------------------------------------------------------
-
-    def build(self, scene_description: str) -> dict:
+    def build(self, scene_description: str, catalog_context: str = "") -> dict:
         """
-        Costruisce il payload completo per la chiamata ad Ollama.
-
-        Args:
-            scene_description: Testo con la descrizione della scena.
-
-        Returns:
-            Dizionario compatibile con l'API /api/chat di Ollama.
+        Costruisce il payload con i messaggi per il modello.
         """
+        system_content = self.system_prompt.replace("[[CATALOG_CONTEXT]]", catalog_context)
         return {
-            "model": self.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": self.system_prompt,
+                    "content": system_content,
                 },
                 {
                     "role": "user",
                     "content": scene_description,
                 },
             ],
-            "stream": False,
-            "options": {
-                "temperature": 0.2,  # bassa temperatura = output più deterministico
-                "top_p": 0.9,
-                "num_predict": 1024,  # limite token risposta
-            },
         }
 
     # ------------------------------------------------------------------

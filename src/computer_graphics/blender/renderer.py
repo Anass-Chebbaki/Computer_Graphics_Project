@@ -32,20 +32,51 @@ def configure_render(
     # engine: str = "CYCLES", MOTORE GRAFICO PIU PERFORMANTE
     engine: str = "BLENDER_EEVEE",  # UTLIZZIAMO QUESTO PER DEBUG AL MOMENTO
 ) -> None:
-    """Configura i parametri di render della scena.
+    """
+    Configura i parametri di render della scena con validazione del motore.
+
+    Gestisce la transizione tra EEVEE (Blender < 4.2) e EEVEE_NEXT (Blender 4.2+).
 
     Args:
         output_path: Percorso file PNG di output.
         resolution_x: Larghezza render in pixel.
         resolution_y: Altezza render in pixel.
-        samples: Numero di campioni Cycles.
-        engine: Motore di render (``"CYCLES"`` o ``"BLENDER_EEVEE"``).
+        samples: Numero di campioni (Cycles/Eevee).
+        engine: Motore richiesto ("CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT").
     """
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
     scene = bpy.context.scene
-    scene.render.engine = engine
+
+    # --- Validazione e Normalizzazione Motore ---
+    available_engines = bpy.context.preferences.addons.keys()
+
+    # Motori integrati non sempre presenti in addons.keys(), controlliamo enum
+    valid_engines = [
+        item.value for item in scene.bl_rna.properties["render"].fixed_type.
+        properties["engine"].enum_items
+    ]
+
+    target_engine = engine
+    if target_engine not in valid_engines:
+        # Fallback automatico per EEVEE su Blender 4.2+
+        if target_engine == "BLENDER_EEVEE" and "BLENDER_EEVEE_NEXT" in valid_engines:
+            logger.info("Motore BLENDER_EEVEE non trovato. Uso BLENDER_EEVEE_NEXT.")
+            target_engine = "BLENDER_EEVEE_NEXT"
+        # Fallback automatico per EEVEE_NEXT su Blender < 4.2
+        elif target_engine == "BLENDER_EEVEE_NEXT" and "BLENDER_EEVEE" in valid_engines:
+            target_engine = "BLENDER_EEVEE"
+        else:
+            logger.warning(
+                "Motore '%s' non disponibile. Motori attivi (addons): %s. "
+                "Fallback su CYCLES.",
+                target_engine,
+                list(available_engines),
+            )
+            target_engine = "CYCLES"
+
+    scene.render.engine = target_engine
     scene.render.resolution_x = resolution_x
     scene.render.resolution_y = resolution_y
     # scene.render.resolution_percentage = 100
@@ -54,52 +85,50 @@ def configure_render(
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
 
-    if engine == "CYCLES":
+    if target_engine == "CYCLES":
         scene.cycles.samples = samples
         scene.cycles.use_denoising = True
+    elif "EEVEE" in target_engine:
+        # In Blender 4.2+ (EEVEE_NEXT) samples si imposta su scene.eevee
+        if hasattr(scene, "eevee"):
+            scene.eevee.taa_render_samples = samples
 
     logger.debug(
-        "Render configurato: %s @ %dx%d, %d samples.",
-        engine,
+        "Render configurato: %s @ %dx%d (%d samples).",
+        target_engine,
         resolution_x,
         resolution_y,
         samples,
     )
 
 
-def render_scene(output_path: str | Path) -> Path:
-    """Esegue il render 2D e salva il file PNG.
-
-    Args:
-        output_path: Percorso completo del file PNG di output.
-
-    Returns:
-        Path del file PNG generato.
-    """
+def render_scene(
+    output_path: str | Path,
+    engine: str = "CYCLES",
+    resolution_x: int = 1280,
+    resolution_y: int = 720,
+    samples: int = 64,
+) -> Path:
+    """Esegue il render 2D e salva il file PNG."""
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
-
-    from computer_graphics.config_loader import ConfigLoader
-
-    blender_cfg = ConfigLoader.get("blender", default={})
-    engine = blender_cfg.get("render_engine", "CYCLES")
-    res_x = blender_cfg.get("resolution_x", 1920)
-    res_y = blender_cfg.get("resolution_y", 1080)
-    samples = blender_cfg.get("samples", 64)
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     configure_render(
         output,
-        resolution_x=res_x,
-        resolution_y=res_y,
+        resolution_x=resolution_x,
+        resolution_y=resolution_y,
         samples=samples,
         engine=engine,
     )
 
+    # Forza l'aggiornamento del dependency graph prima del render
+    bpy.context.view_layer.update()
+
     bpy.ops.render.render(write_still=True)
-    logger.info("Render 2D completato: %s", output)
+    logger.info("Render 2D completato: %s", output.resolve())
     return output
 
 

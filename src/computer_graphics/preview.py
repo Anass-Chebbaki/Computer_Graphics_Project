@@ -6,8 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-
+import math
 
 if TYPE_CHECKING:
     from computer_graphics.validator import SceneObject
@@ -37,7 +36,9 @@ def generate_2d_preview(
         import matplotlib.pyplot as plt
         from matplotlib.patches import Rectangle
     except ImportError:
-        logger.warning("Matplotlib non trovato. Impossibile generare anteprima 2D.")
+        logger.warning(
+            "Matplotlib non trovato. Impossibile generare anteprima 2D."
+        )
         return Path(output_path)
 
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -54,6 +55,7 @@ def generate_2d_preview(
 
     all_x = [0.0]
     all_y = [0.0]
+    used_labels: set[str] = set()
 
     for obj in objects:
         # Calcolo dimensioni approssimative (fallback se non abbiamo SceneGraph)
@@ -61,7 +63,7 @@ def generate_2d_preview(
         h = obj.scale * 0.8
 
         # Gestione rotazione (solo Z per 2D)
-        angle = np.degrees(obj.rot_z)
+        angle = math.degrees(obj.rot_z)
 
         # Centro dell'oggetto
         cx, cy = obj.x, obj.y
@@ -75,9 +77,13 @@ def generate_2d_preview(
         elif obj.parent:
             color = color_map["child"]
 
+        # Gestione label unica per la legenda
+        label = ""
+        if obj.name not in used_labels:
+            label = obj.name
+            used_labels.add(obj.name)
+
         # Disegna il rettangolo (orientato)
-        # In Matplotlib, Rectangle ruota intorno all'angolo in basso a sinistra (x, y)
-        # Dobbiamo calcolare l'offset per centrarlo
         r = Rectangle(
             (0, 0),
             w,
@@ -85,13 +91,11 @@ def generate_2d_preview(
             angle=angle,
             color=color,
             alpha=0.7,
-            label=(
-                obj.name if obj.name not in [p.get_label() for p in ax.patches] else ""
-            ),
+            label=label,
         )
 
         # Trasformazione per centrare
-        import matplotlib.transforms as mtransforms
+        import matplotlib.transforms as mtransforms  # noqa: PLC0415
 
         trans = (
             mtransforms.Affine2D()
@@ -103,7 +107,15 @@ def generate_2d_preview(
         r.set_transform(trans)
 
         ax.add_patch(r)
-        ax.text(cx, cy, obj.name, fontsize=8, ha="center", va="center", clip_on=True)
+        ax.text(
+            cx,
+            cy,
+            obj.name,
+            fontsize=8,
+            ha="center",
+            va="center",
+            clip_on=True,
+        )
 
     # Imposta limiti del grafico
     margin = 5.0
@@ -113,6 +125,9 @@ def generate_2d_preview(
     ax.set_title(title)
     ax.set_xlabel("X (meters)")
     ax.set_ylabel("Y (meters)")
+
+    if used_labels:
+        ax.legend(loc="upper right", fontsize="small", framealpha=0.5)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

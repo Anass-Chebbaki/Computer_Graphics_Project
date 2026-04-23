@@ -1,4 +1,4 @@
-# Configurazione principale di NL2Scene3D
+# Configurazione principale di NL2Scene3D v2
 # I valori possono essere sovrascritti da variabili d'ambiente
 
 ollama:
@@ -12,9 +12,20 @@ ollama:
     top_p: 0.9
     num_predict: 1024
 
+# Provider LLM: "ollama", "gemini", "openai"
+llm:
+  provider: "ollama"
+  # Per Gemini: impostare GEMINI_API_KEY come variabile d'ambiente
+  api_key: null
+  # Modello Gemini da usare (aggiornare quando disponibili versioni piu recenti)
+  model: "gemini-3.1-flash"
+  base_url: null
+
 pipeline:
   max_retries: 3
   verbose: true
+  # Abilita il ConstraintSolver deterministico (raccomandato)
+  use_constraint_solver: true
 
 paths:
   assets_dir: "assets/models"
@@ -22,7 +33,7 @@ paths:
   prompt_file: "config/prompts/system_prompt.txt"
 
 blender:
-  render_engine: "CYCLES"    # CYCLES o BLENDER_EEVEE
+  render_engine: "CYCLES"  # CYCLES o BLENDER_EEVEE
   resolution_x: 1920
   resolution_y: 1080
   samples: 64
@@ -32,3 +43,26 @@ validation:
   min_description_length: 10
   max_description_length: 2000
   max_coordinate_value: 50.0
+
+room_mode:
+  enabled: false
+  margin: 2.0
+  wall_height: 3.0
+  ceiling: false
+
+# Configurazione Poly Haven
+poly_haven:
+  # Qualita dei modelli: "1k", "2k", "4k"
+  quality: "2k"
+  # Directory cache per gli asset scaricati (relativa a assets_dir)
+  cache_subdir: "polyhaven"
+  # Scarica automaticamente HDRI per l'illuminazione
+  auto_hdri: false
+  hdri_category: "indoor"
+
+# Configurazione Critic Loop
+critic_loop:
+  # Numero massimo di iterazioni del feedback loop visivo
+  max_iterations: 2
+  # Soglia minima di correzioni per considerare il loop convergente
+  convergence_threshold: 0

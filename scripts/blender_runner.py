@@ -1,152 +1,188 @@
 #!/usr/bin/env python3
 """
-Script da eseguire DENTRO Blender per costruire la scena 3D.
+Entry point eseguito da Blender in modalità background.
 
-Uso da terminale:
-    blender --background --python scripts/blender_runner.py -- objects.json
+Invocazione da CLI:
     blender --background --python scripts/blender_runner.py -- \
-        objects.json --render output.png
+        scene_objects.json \
+        [--render assets/renders/output.png] \
+        [--export-3d assets/renders/scene --export-format glb]
 
-Uso da Blender Text Editor:
-    Impostare OBJECTS_JSON_PATH e ASSETS_DIR nella sezione CONFIG
-    e premere Run Script.
+Blender passa tutto ciò che segue '--' in sys.argv. Questo script
+estrae i propri argomenti ignorando quelli di Blender che precedono '--'.
 """
-
 from __future__ import annotations
 
-import json
 import logging
-import site
 import sys
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# CONFIG (modifica qui se esegui dall'editor interno di Blender)
-# ---------------------------------------------------------------------------
-OBJECTS_JSON_PATH: str = "scene_objects.json"
-ASSETS_DIR: str = str(Path(__file__).parent.parent / "assets" / "models")
-_BASE_RENDER_DIR = Path(__file__).parent.parent / "assets" / "renders"
-RENDER_OUTPUT: str = str(_BASE_RENDER_DIR / "output.png")
-RENDER_ENABLED: bool = True
-# ---------------------------------------------------------------------------
-
-# Setup path per trovare i moduli del progetto
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-# Aggiunge le librerie installate dall'utente (rich, pydantic, ecc.)
-
-sys.path.insert(0, site.getusersitepackages())
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def parse_blender_args() -> tuple[str, str | None, str | None, str]:
-    """Recupera argomenti passati dopo '--' nell'invocazione Blender.
+def _parse_args() -> dict:
+    """
+    Estrae gli argomenti dello script da sys.argv.
+
+    Blender popola sys.argv con i propri argomenti prima di '--' e
+    con quelli dello script dopo '--'. Questo parser ignora tutto
+    ciò che precede '--'.
 
     Returns:
-        Tupla ``(json_path, render_output_or_None, export_path_or_None,
-        export_format)``.
+        Dizionario con le chiavi: json_file, render_output, export_3d,
+        export_format.
     """
-    argv = sys.argv
     try:
-        sep_index = argv.index("--")
-        args = argv[sep_index + 1 :]
+        separator_idx = sys.argv.index("--")
+        script_args = sys.argv[separator_idx + 1:]
     except ValueError:
-        return (
-            OBJECTS_JSON_PATH,
-            RENDER_OUTPUT if RENDER_ENABLED else None,
-            None,
-            "glb",
+        logger.error(
+            "Separatore '--' non trovato in sys.argv. "
+            "Invocazione corretta: blender --background --python "
+            "scripts/blender_runner.py -- scene.json"
         )
+        sys.exit(1)
 
-    json_path = args[0] if args else OBJECTS_JSON_PATH
-    render_out: str | None = None
-    export_path: str | None = None
-    export_format: str = "glb"
+    if not script_args:
+        logger.error("Nessun argomento fornito dopo '--'. Specificare il file JSON.")
+        sys.exit(1)
 
-    if "--render" in args:
-        render_idx = args.index("--render")
-        if render_idx + 1 < len(args):
-            render_out = str((PROJECT_ROOT / args[render_idx + 1]).resolve())
+    result: dict = {
+        "json_file": script_args[0],
+        "render_output": None,
+        "assets_dir": "assets/models",
+        "room_mode": False,
+        "export_3d": None,
+        "export_format": "glb",
+    }
 
-    if "--no-render" in args:
-        render_out = None
+    i = 1
+    while i < len(script_args):
+        arg = script_args[i]
+        if arg == "--render" and i + 1 < len(script_args):
+            result["render_output"] = script_args[i + 1]
+            i += 2
+        elif arg == "--assets-dir" and i + 1 < len(script_args):
+            result["assets_dir"] = script_args[i + 1]
+            i += 2
+        elif arg == "--room-mode":
+            result["room_mode"] = True
+            i += 1
+        elif arg == "--export-3d" and i + 1 < len(script_args):
+            result["export_3d"] = script_args[i + 1]
+            i += 2
+        elif arg == "--export-format" and i + 1 < len(script_args):
+            result["export_format"] = script_args[i + 1]
+            i += 2
+        else:
+            logger.warning("Argomento non riconosciuto: '%s'", arg)
+            i += 1
 
-    if "--export-3d" in args:
-        exp_idx = args.index("--export-3d")
-        if exp_idx + 1 < len(args):
-            export_path = str((PROJECT_ROOT / args[exp_idx + 1]).resolve())
-
-    if "--export-format" in args:
-        fmt_idx = args.index("--export-format")
-        if fmt_idx + 1 < len(args):
-            export_format = args[fmt_idx + 1].lower()
-
-    return json_path, render_out, export_path, export_format
+    return result
 
 
 def main() -> None:
-    """Entry point dello script Blender."""
-    from computer_graphics.blender.scene_builder import (
-        clear_scene,
-        populate_scene,
-        setup_camera,
-        setup_lighting,
+    """
+    Punto di ingresso principale del runner Blender.
+
+    Flusso:
+        1. Parsing argomenti
+        2. Aggiunta del package src/ al sys.path
+        3. Caricamento del JSON degli oggetti
+        4. Pulizia della scena default di Blender
+        5. Popolazione della scena (import asset, posizionamento, materiali)
+        6. Render PNG (opzionale)
+        7. Export 3D GLB/USDZ (opzionale)
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s] %(name)s: %(message)s",
     )
 
-    json_path, render_output, export_path, export_format = parse_blender_args()
+    args = _parse_args()
+    json_path = Path(args["json_file"])
 
-    json_file = Path(json_path)
-    if not json_file.exists():
-        logger.error("File JSON non trovato: %s", json_file.resolve())
+    if not json_path.exists():
+        logger.error("File JSON non trovato: %s", json_path.resolve())
         sys.exit(1)
 
-    with json_file.open(encoding="utf-8") as fp:
-        objects = json.load(fp)
+    # Aggiunge src/ al path per permettere l'import dei moduli blender specifici
+    project_root = Path(__file__).parent.parent
+    src_path = project_root / "src"
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
 
-    logger.info("Caricati %d oggetti da %s", len(objects), json_file)
+    import json  # noqa: PLC0415
 
-    logger.info("Pulizia scena...")
+    with json_path.open(encoding="utf-8") as fp:
+        json_data = json.load(fp)
+
+    # Estrae oggetti e luci - assumiamo il JSON sia gia validato dalla CLI
+    raw_objects = []
+    raw_lights = []
+    if isinstance(json_data, dict):
+        raw_objects = json_data.get("objects", [])
+        raw_lights = json_data.get("lights", [])
+    elif isinstance(json_data, list):
+        raw_objects = json_data
+
+    assets_path = (project_root / args["assets_dir"]).absolute()
+
+    # Importa moduli Blender (non dipendono da rich/pydantic/yaml)
+    from computer_graphics.blender.scene_builder import (  # noqa: PLC0415
+        clear_scene,
+        populate_scene,
+    )
+
     clear_scene()
 
-    logger.info("Configurazione luci e camera...")
-    setup_lighting()
-    setup_camera()
+    # Costruisci la scena
+    results = populate_scene(
+        objects=raw_objects,
+        lights=raw_lights,
+        assets_dir=assets_path,
+        room_mode=args["room_mode"],
+    )
 
-    logger.info("Importazione oggetti in scena...")
-    results = populate_scene(objects, ASSETS_DIR)
     logger.info(
-        "Scena pronta: %d importati, %d proxy, %d saltati.",
+        "Scena popolata: %d importati, %d proxy, %d saltati.",
         len(results["imported"]),
         len(results["proxies"]),
         len(results["skipped"]),
     )
 
-    # Render 2D (opzionale)
-    if render_output:
-        from computer_graphics.blender.renderer import render_scene
+    if args["render_output"] is not None:
+        from computer_graphics.blender.renderer import render_scene  # noqa: PLC0415
 
-        logger.info("Avvio render 2D -> %s", render_output)
-        render_scene(render_output)
-        logger.info("Render 2D completato.")
-
-    # Esportazione 3D (opzionale)
-    if export_path:
-        from computer_graphics.blender.renderer import export_scene_3d
-
-        logger.info(
-            "Avvio esportazione 3D (%s) -> %s", export_format.upper(), export_path
+        render_output_path = Path(args["render_output"]).absolute()
+        # Usa parametri di default robusti (compatibili con EEVEE/Cycles)
+        render_scene(
+            render_output_path,
+            engine="CYCLES",
+            resolution_x=1280,
+            resolution_y=720,
+            samples=64,
         )
-        try:
-            out = export_scene_3d(
-                export_path,
-                fmt=export_format,  # type: ignore[arg-type]
-                selected_only=False,
+        logger.info("Render completato: %s", render_output_path)
+
+    if args["export_3d"] is not None:
+        from computer_graphics.blender.renderer import export_scene_3d  # noqa: PLC0415
+
+        fmt = args["export_format"]
+        if fmt not in ("glb", "usdz"):
+            logger.error(
+                "Formato export non supportato: '%s'. Valori ammessi: glb, usdz.",
+                fmt,
             )
-            logger.info("Esportazione 3D completata: %s", out)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Esportazione 3D fallita: %s", exc)
+            sys.exit(1)
+
+        export_path = Path(args["export_3d"])
+        export_scene_3d(export_path, fmt=fmt)
+        logger.info(
+            "Export 3D (%s) completato: %s",
+            fmt.upper(),
+            export_path.with_suffix(f".{fmt}").resolve(),
+        )
 
 
 if __name__ == "__main__":

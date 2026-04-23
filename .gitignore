@@ -60,12 +60,9 @@ assets/renders/*.jpg
 docker/data/
 
 # Asset 3D (modelli e texture)
-assets/models/*.obj
-assets/models/*.mtl
-assets/models/*.fbx
-assets/models/*.glb
-assets/models/*.gltf
-assets/models/*.blend
+assets/models/*
+assets/textures/*
+assets/renders/*
 
 # Ollama (modelli scaricati localmente - troppo grandi)
 *.gguf

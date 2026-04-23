@@ -39,7 +39,7 @@ BANNER = """
 ██║ ╚████║███████╗███████╗███████║╚██████╗███████╗██║ ╚████║███████╗██████╔╝██████╔╝
 ╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝ ╚═════╝╚══════╝╚═╝  ╚═══╝╚══════╝╚═════╝ ╚═════╝
 [/bold cyan]
-[dim]Natural Language → 3D Scene Generator — Powered by Ollama + Blender[/dim]
+[dim]Natural Language -> 3D Scene Generator --- Powered by Ollama + Blender[/dim]
 """
 
 
@@ -51,6 +51,43 @@ def _setup_logging(verbose: bool) -> None:
         format="%(message)s",
         handlers=[RichHandler(console=console, rich_tracebacks=True)],
     )
+
+
+def _find_blender_path() -> str | None:
+    """Trova il percorso dell'eseguibile Blender in modo cross-platform."""
+    import shutil  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    # 1. Prova nel PATH standard
+    path = shutil.which("blender")
+    if path:
+        return path
+
+    # 2. Ricerca in percorsi comuni su Windows
+    if sys.platform == "win32":
+        common_paths = [
+            Path("C:/Program Files/Blender Foundation"),
+            Path("C:/Program Files (x86)/Blender Foundation"),
+        ]
+        found_versions = []
+        for base in common_paths:
+            if base.exists():
+                # Glob ricorsivo limitato per trovare blender.exe nelle sottocartelle Blender X.Y
+                for p in base.glob("Blender */blender.exe"):
+                    found_versions.append(p)
+
+        if found_versions:
+            # Ritorna la versione più recente (ordinamento alfabetico delle cartelle)
+            return str(sorted(found_versions)[-1])
+
+    # 3. Ricerca su macOS
+    if sys.platform == "darwin":
+        mac_path = "/Applications/Blender.app/Contents/MacOS/Blender"
+        if Path(mac_path).exists():
+            return mac_path
+
+    return None
 
 
 def _print_banner() -> None:
@@ -110,7 +147,7 @@ def _select_model_interactively(ollama_url: str) -> str:
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """
-    NL2Scene3D — Generazione automatica di scene 3D da linguaggio naturale.
+    NL2Scene3D --- Generazione automatica di scene 3D da linguaggio naturale.
 
     Usa 'computer-graphics generate' per avviare la pipeline principale.
     Usa 'computer-graphics info' per visualizzare la configurazione attuale.
@@ -130,7 +167,7 @@ def main(ctx: click.Context) -> None:
     type=click.Path(exists=True),
     help="Legge la descrizione da file .txt.",
 )
-@click.option("--model", "-m", default=None, show_default=True, help="Modello Ollama.")
+@click.option("--model", "-m", default=None, show_default=True, help="Modello LLM.")
 @click.option(
     "--output",
     "-o",
@@ -198,6 +235,81 @@ def main(ctx: click.Context) -> None:
     show_default=True,
     help="Percorso output PNG dell'anteprima 2D.",
 )
+# ---- Opzioni Gemini ----
+@click.option(
+    "--gemini",
+    is_flag=True,
+    default=False,
+    help=(
+        "Usa Gemini 3.0 Flash come provider LLM al posto di Ollama. "
+        "Richiede GEMINI_API_KEY nell'ambiente o in .env."
+    ),
+)
+@click.option(
+    "--gemini-api-key",
+    default=None,
+    envvar="GEMINI_API_KEY",
+    help="Chiave API Google Gemini (alternativa a GEMINI_API_KEY env var).",
+)
+@click.option(
+    "--gemini-model",
+    default="gemini-3-flash-preview",
+    show_default=True,
+    help="Modello Gemini da utilizzare.",
+)
+# ---- Opzioni Critic Loop ----
+@click.option(
+    "--critic",
+    is_flag=True,
+    default=False,
+    help=(
+        "Attiva il critic loop visivo MLLM dopo il render preliminare. "
+        "Richiede --blender e --render, e un client Gemini configurato."
+    ),
+)
+@click.option(
+    "--critic-iterations",
+    default=2,
+    show_default=True,
+    type=int,
+    help="Numero massimo di iterazioni del critic loop.",
+)
+# ---- Opzioni Poly Haven ----
+@click.option(
+    "--polyhaven",
+    is_flag=True,
+    default=False,
+    help=(
+        "Scarica asset PBR da Poly Haven (CC0) prima di avviare Blender. "
+        "Sostituisce i modelli primitivi locali con modelli realistici."
+    ),
+)
+@click.option(
+    "--polyhaven-quality",
+    default="2k",
+    show_default=True,
+    type=click.Choice(["1k", "2k", "4k"]),
+    help="Qualità delle texture Poly Haven.",
+)
+@click.option(
+    "--polyhaven-hdri",
+    is_flag=True,
+    default=False,
+    help="Scarica e usa un HDRI da Poly Haven per l'illuminazione ambientale.",
+)
+# ---- Opzioni Constraint Solver ----
+@click.option(
+    "--no-constraint-solver",
+    is_flag=True,
+    default=False,
+    help="Disabilita il ConstraintSolver deterministico (usa solo SceneGraph OBB).",
+)
+@click.option(
+    "--room",
+    is_flag=True,
+    default=False,
+    help="Genera automaticamente pavimenti e pareti (Room Mode).",
+)
 def generate(  # noqa: PLR0913
     description: str | None,
     interactive: bool,
@@ -215,6 +327,16 @@ def generate(  # noqa: PLR0913
     export_output: str,
     preview: bool,
     preview_output: str,
+    gemini: bool,
+    gemini_api_key: str | None,
+    gemini_model: str,
+    critic: bool,
+    critic_iterations: int,
+    polyhaven: bool,
+    polyhaven_quality: str,
+    polyhaven_hdri: bool,
+    no_constraint_solver: bool,
+    room: bool,
 ) -> None:
     """Genera una scena 3D da una descrizione in linguaggio naturale.
 
@@ -226,30 +348,64 @@ def generate(  # noqa: PLR0913
 
         computer-graphics generate "stanza" --blender --export-glb
 
-        computer-graphics generate "studio" --blender --export-usdz \\
-            --export-output assets/renders/studio
+        computer-graphics generate "studio" --gemini --polyhaven --critic \\
+                --blender --render
+
+        computer-graphics generate "ufficio" --gemini \\
+                --gemini-api-key YOUR_KEY --critic --critic-iterations 3
     """
     _print_banner()
     _setup_logging(verbose)
 
     # Carica configurazione
     cfg = ConfigLoader.load()
-    effective_url = ollama_url or cfg.get("ollama", {}).get("url")
 
-    # Selezione del modello: CLI > ENV/Config > Interattiva
-    if model:
-        effective_model = model
+    # Determina provider LLM
+    effective_model = None
+    effective_url = "-"
+    
+    # Se l'utente specifica opzioni Gemini, forziamo il provider
+    if gemini or gemini_model != "gemini-3-flash-preview" or gemini_api_key:
+        effective_provider = "gemini"
+        effective_model = model or gemini_model
+        api_key = gemini_api_key or cfg.get("llm", {}).get("api_key", "")
+        if not api_key:
+            console_err.print(
+                "[bold red]Errore:[/bold red] Il provider Gemini richiede una chiave API. "
+                "Usare --gemini-api-key oppure impostare GEMINI_API_KEY."
+            )
+            raise SystemExit(1)
+        # Aggiorna config temporaneamente
+        ConfigLoader.invalidate_cache()
+        import os  # noqa: PLC0415
+        os.environ["LLM_PROVIDER"] = "gemini"
+        os.environ["LLM_API_KEY"] = api_key
+        os.environ["LLM_MODEL"] = effective_model
     else:
-        # Se non specificato in CLI, prova a prenderlo dalla config/env
-        config_model = cfg.get("ollama", {}).get("model")
-        if config_model:
-            effective_model = config_model
-        elif not sys.stdin.isatty():
-            # In contesti non interattivi (es. CI), usa llama3 come fallback
-            effective_model = "llama3"
+        effective_provider = cfg.get("llm", {}).get("provider", "ollama")
+        effective_url = ollama_url or cfg.get("ollama", {}).get("url")
+
+    # Selezione definitiva del modello se non ancora individuato tramite flag/provider
+    if not effective_model:
+        if model:
+            effective_model = model
         else:
-            # Chiedi all'utente
-            effective_model = _select_model_interactively(effective_url)
+            # Recupera dalla configurazione in base al provider effettivo
+            if effective_provider == "gemini":
+                effective_model = cfg.get("llm", {}).get("model", "gemini-3-flash-preview")
+            else:
+                effective_model = cfg.get("ollama", {}).get("model")
+
+        # Se ancora nullo e siamo su Ollama, prova interattivo
+        if not effective_model and effective_provider == "ollama":
+            if not sys.stdin.isatty():
+                effective_model = "llama3"
+            else:
+                effective_model = _select_model_interactively(
+                    effective_url or "http://localhost:11434"
+                )
+        elif not effective_model:
+            effective_model = "gemini-3-flash-preview"
 
     effective_retries = retries or cfg.get("pipeline", {}).get("max_retries") or 3
 
@@ -268,12 +424,30 @@ def generate(  # noqa: PLR0913
         )
         raise SystemExit(1)
 
+    if critic and not (blender and render):
+        console_err.print(
+            "[bold red]Errore:[/bold red] --critic richiede --blender e --render."
+        )
+        raise SystemExit(1)
+
+    if critic and not gemini and not gemini_api_key:
+        console_err.print(
+            "[bold red]Errore:[/bold red] --critic richiede un client Gemini. "
+            "Usare --gemini oppure impostare GEMINI_API_KEY."
+        )
+        raise SystemExit(1)
+
     console.print(
         Panel(
+            f"[bold]Provider LLM:[/bold] {effective_provider}\n"
             f"[bold]Modello:[/bold] {effective_model}\n"
             f"[bold]Ollama URL:[/bold] {effective_url}\n"
             f"[bold]Max retry:[/bold] {effective_retries}\n"
             f"[bold]Output JSON:[/bold] {output}\n"
+            f"[bold]Constraint Solver:[/bold] {not no_constraint_solver}\n"
+            f"[bold]Poly Haven:[/bold] {polyhaven}\n"
+            f"[bold]Critic Loop:[/bold] {critic} "
+            f"(max {critic_iterations} iterazioni)\n"
             f"[bold]Export GLB:[/bold] {export_glb}\n"
             f"[bold]Export USDZ:[/bold] {export_usdz}",
             title="[cyan]Configurazione Pipeline[/cyan]",
@@ -297,6 +471,7 @@ def generate(  # noqa: PLR0913
                 "usare --interactive o --file.",
             )
             raise SystemExit(1)
+
         scene_description = handler.get_description()
     except (ValueError, FileNotFoundError) as exc:
         console_err.print(f"[bold red]Errore input:[/bold red] {exc}")
@@ -311,13 +486,21 @@ def generate(  # noqa: PLR0913
     )
 
     # Pipeline principale
+    assets_dir_str = cfg.get("paths", {}).get("assets_dir", "assets/models")
+
     try:
         objects = generate_scene_objects(
             scene_description=scene_description,
             model=effective_model,
             max_retries=effective_retries,
-            ollama_url=effective_url,
+            ollama_url=(
+                ollama_url or cfg.get("ollama", {}).get("url")
+                if not gemini
+                else None
+            ),
             verbose=verbose,
+            use_constraint_solver=not no_constraint_solver,
+            assets_dir=assets_dir_str,
         )
     except LLMConnectionError as exc:
         console_err.print(
@@ -328,6 +511,15 @@ def generate(  # noqa: PLR0913
         console_err.print(f"\n[bold red]Errore pipeline:[/bold red] {exc}")
         raise SystemExit(1) from exc
 
+    # Poly Haven prefetch
+    if polyhaven:
+        _run_polyhaven_prefetch(
+            objects=objects,
+            assets_dir=assets_dir_str,
+            quality=polyhaven_quality,
+            download_hdri=polyhaven_hdri,
+        )
+
     # Salvataggio JSON
     import json as _json  # noqa: PLC0415
 
@@ -337,7 +529,7 @@ def generate(  # noqa: PLR0913
     with output_path.open("w", encoding="utf-8") as fp:
         _json.dump(output_data, fp, indent=2, ensure_ascii=False)
 
-    # Mostra tabella riassuntiva
+    # Tabella riassuntiva
     from rich.table import Table as _Table  # noqa: PLC0415
 
     table = _Table(
@@ -352,11 +544,13 @@ def generate(  # noqa: PLR0913
 
     for obj in objects:
         pos = f"({obj.x:.2f}, {obj.y:.2f}, {obj.z:.2f})"
-        table.add_row(obj.name, pos, obj.material_semantics or "-", obj.parent or "-")
+        table.add_row(
+            obj.name, pos, obj.material_semantics or "-", obj.parent or "-"
+        )
     console.print(table)
 
     if preview:
-        from computer_graphics.preview import generate_2d_preview
+        from computer_graphics.preview import generate_2d_preview  # noqa: PLC0415
 
         generate_2d_preview(objects, preview_output)
 
@@ -372,18 +566,31 @@ def generate(  # noqa: PLR0913
         )
     )
 
-    # Lancio automatico Blender
+    # Lancio Blender
     if blender:
         import subprocess  # noqa: PLC0415
 
+        blender_exe = _find_blender_path()
+        if not blender_exe:
+            console_err.print(
+                "\n[bold red]Errore:[/bold red] Blender non trovato. "
+                "Assicurarsi che sia installato o nel PATH."
+            )
+            raise SystemExit(1)
+
         cmd = [
-            "blender",
+            blender_exe,
             "--background",
             "--python",
             "scripts/blender_runner.py",
             "--",
             str(output_path),
+            "--assets-dir",
+            str(assets_dir_str),
         ]
+
+        if room:
+            cmd.append("--room-mode")
 
         if render:
             cmd += ["--render", render_output]
@@ -412,6 +619,19 @@ def generate(  # noqa: PLR0913
                     f"[cyan]{render_path.resolve()}[/cyan]"
                 )
 
+            # Critic loop visivo
+            if critic and render_path.exists():
+                _run_critic_loop(
+                    objects=objects,
+                    render_path=render_path,
+                    scene_description=scene_description,
+                    output_path=output_path,
+                    gemini_api_key=gemini_api_key or "",
+                    gemini_model=gemini_model,
+                    max_iterations=critic_iterations,
+                    verbose=verbose,
+                )
+
         if export_glb or export_usdz:
             fmt = "glb" if export_glb else "usdz"
             export_path = Path(export_output).with_suffix(f".{fmt}")
@@ -420,6 +640,143 @@ def generate(  # noqa: PLR0913
                     f"\n[bold green]✓ Scena 3D esportata ({fmt.upper()}):[/bold green] "
                     f"[cyan]{export_path.resolve()}[/cyan]"
                 )
+
+
+def _run_polyhaven_prefetch(
+    objects: list,
+    assets_dir: str,
+    quality: str,
+    download_hdri: bool,
+) -> None:
+    """
+    Pre-scarica asset Poly Haven per gli oggetti nella scena.
+
+    Args:
+        objects: Lista di SceneObject da preparare.
+        assets_dir: Directory degli asset locale.
+        quality: Qualità dei modelli (``"1k"``, ``"2k"``, ``"4k"``).
+        download_hdri: Se True, scarica anche un HDRI.
+    """
+    from computer_graphics.poly_haven_catalog import (  # noqa: PLC0415
+        PolyHavenCatalog,
+    )
+
+    assets_path = Path(assets_dir)
+    catalog = PolyHavenCatalog(cache_dir=assets_path, quality=quality)
+
+    asset_names = list({obj.name for obj in objects})
+
+    console.print(
+        f"\n[bold yellow]Poly Haven: download di {len(asset_names)} asset "
+        f"in qualità {quality}...[/bold yellow]"
+    )
+
+    with console.status("[bold yellow]Download in corso...[/bold yellow]"):
+        results = catalog.prefetch_assets(asset_names)
+
+    found = sum(1 for v in results.values() if v is not None)
+    console.print(
+        f"[bold green]Poly Haven:[/bold green] {found}/{len(asset_names)} "
+        f"asset scaricati in [cyan]{assets_path}[/cyan]"
+    )
+
+    if download_hdri:
+        with console.status("[bold yellow]Download HDRI...[/bold yellow]"):
+            hdri_path = catalog.get_hdri_path(category="indoor")
+        if hdri_path:
+            console.print(
+                f"[bold green]HDRI scaricata:[/bold green] "
+                f"[cyan]{hdri_path}[/cyan]"
+            )
+        else:
+            console.print(
+                "[bold yellow]HDRI non disponibile. "
+                "Verrà usata l'illuminazione di default.[/bold yellow]"
+            )
+
+
+def _run_critic_loop(
+    objects: list,
+    render_path: Path,
+    scene_description: str,
+    output_path: Path,
+    gemini_api_key: str,
+    gemini_model: str,
+    max_iterations: int,
+    verbose: bool,
+) -> None:
+    """
+    Esegue il critic loop visivo con Gemini Vision.
+
+    Args:
+        objects: Lista di SceneObject correnti.
+        render_path: Percorso al render PNG preliminare.
+        scene_description: Descrizione testuale della scena.
+        output_path: Percorso al file JSON di output da aggiornare.
+        gemini_api_key: Chiave API Google Gemini.
+        gemini_model: Nome del modello Gemini Vision.
+        max_iterations: Numero massimo di iterazioni critic.
+        verbose: Se True, stampa dettagli a terminale.
+    """
+    from computer_graphics.critic_loop import CriticLoop  # noqa: PLC0415
+    from computer_graphics.gemini_client import GeminiClient  # noqa: PLC0415
+
+    if not gemini_api_key:
+        console.print(
+            "[bold yellow]Critic loop: nessuna chiave Gemini disponibile. "
+            "Skip.[/bold yellow]"
+        )
+        return
+
+    console.print(
+        f"\n[bold cyan]Avvio critic loop visivo "
+        f"(max {max_iterations} iterazioni)...[/bold cyan]"
+    )
+
+    gemini_client = GeminiClient(
+        api_key=gemini_api_key,
+        model=gemini_model,
+    )
+    critic = CriticLoop(
+        gemini_client=gemini_client,
+        max_iterations=max_iterations,
+    )
+
+    with console.status(
+        "[bold yellow]Analisi visiva del render in corso...[/bold yellow]"
+    ):
+        corrected_objects, results = critic.run(
+            objects=objects,
+            render_path=render_path,
+            scene_description=scene_description,
+        )
+
+    total_corrections = sum(len(r.corrections) for r in results)
+    console.print(
+        f"[bold green]Critic loop completato:[/bold green] "
+        f"{len(results)} iterazioni, "
+        f"{total_corrections} correzioni applicate."
+    )
+
+    if total_corrections > 0:
+        # Aggiorna il file JSON con gli oggetti corretti
+        import json as _json  # noqa: PLC0415
+
+        output_data = [obj.model_dump() for obj in corrected_objects]
+        with output_path.open("w", encoding="utf-8") as fp:
+            _json.dump(output_data, fp, indent=2, ensure_ascii=False)
+        console.print(
+            f"[bold green]JSON aggiornato con correzioni critic:[/bold green] "
+            f"[cyan]{output_path.resolve()}[/cyan]"
+        )
+
+        if verbose:
+            for i, result in enumerate(results, 1):
+                if result.has_corrections:
+                    console.print(
+                        f"\n[dim]Iterazione {i}: "
+                        f"{len(result.corrections)} correzioni[/dim]"
+                    )
 
 
 @main.command()
@@ -452,7 +809,7 @@ def info() -> None:
 
 @main.command()
 def check() -> None:
-    """Verifica i prerequisiti di sistema (Ollama, Blender, Python)."""
+    """Verifica i prerequisiti di sistema (Ollama, Gemini, Blender, Python)."""
     import shutil  # noqa: PLC0415
     import subprocess  # noqa: PLC0415
 
@@ -486,7 +843,9 @@ def check() -> None:
     if ollama_ok:
         try:
             models = client.list_models()
-            models_str = f"{len(models)} modelli disponibili: {', '.join(models[:3])}"
+            models_str = (
+                f"{len(models)} modelli disponibili: {', '.join(models[:3])}"
+            )
         except Exception:  # noqa: BLE001
             models_str = "connesso"
     table.add_row(
@@ -495,8 +854,36 @@ def check() -> None:
         models_str if ollama_ok else f"Non raggiungibile su {ollama_url}",
     )
 
-    # Blender
-    blender_path = shutil.which("blender")
+    # Gemini
+    gemini_key = cfg.get("llm", {}).get("api_key", "") or ""
+    if not gemini_key:
+        import os  # noqa: PLC0415
+
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    gemini_configured = bool(gemini_key)
+    if gemini_configured:
+        from computer_graphics.gemini_client import GeminiClient  # noqa: PLC0415
+
+        gemini_client = GeminiClient(api_key=gemini_key)
+        gemini_ok = gemini_client.health_check()
+    else:
+        gemini_ok = False
+    table.add_row(
+        "Gemini API",
+        "[green]✓[/green]" if gemini_ok else "[yellow]⚠[/yellow]",
+        (
+            f"Connesso ({cfg.get('llm', {}).get('model', 'gemini-3-flash-preview')})"
+            if gemini_ok
+            else (
+                "API key non configurata (impostare GEMINI_API_KEY)"
+                if not gemini_configured
+                else "API key configurata ma non raggiungibile"
+            )
+        ),
+    )
+
+    # Blender discovery
+    blender_path = _find_blender_path()
     blender_ok = blender_path is not None
     if blender_ok:
         try:
@@ -522,29 +909,51 @@ def check() -> None:
     assets_dir = Path(cfg.get("paths", {}).get("assets_dir", "assets/models"))
     assets_ok = assets_dir.exists()
     asset_count = len(list(assets_dir.glob("*.obj"))) if assets_ok else 0
+    glb_count = len(list(assets_dir.glob("*.glb"))) if assets_ok else 0
     table.add_row(
         "Assets Directory",
         "[green]✓[/green]" if assets_ok else "[yellow]⚠[/yellow]",
         (
-            f"{assets_dir} — {asset_count} file .obj trovati"
+            f"{assets_dir} — {asset_count} .obj, {glb_count} .glb"
             if assets_ok
             else f"{assets_dir} non trovata"
         ),
     )
 
+    # Poly Haven connectivity
+    try:
+        import requests  # noqa: PLC0415
+
+        ph_response = requests.get(
+            "https://api.polyhaven.com/assets?t=models&limit=1", timeout=5
+        )
+        ph_ok = ph_response.status_code == 200
+    except Exception:  # noqa: BLE001
+        ph_ok = False
+    table.add_row(
+        "Poly Haven API",
+        "[green]✓[/green]" if ph_ok else "[yellow]⚠[/yellow]",
+        "Raggiungibile (CC0 assets)" if ph_ok else "Non raggiungibile",
+    )
+
     console.print(table)
 
-    # Suggerimenti
-    if not ollama_ok:
-        console.print("\n[yellow]→ Avviare Ollama:[/yellow] [bold]ollama serve[/bold]")
+    if not ollama_ok and not gemini_ok:
+        console.print(
+            "\n[yellow]-> Nessun provider LLM disponibile.[/yellow]\n"
+            "   Avviare Ollama: [bold]ollama serve[/bold]\n"
+            "   oppure configurare Gemini: [bold]export GEMINI_API_KEY=...[/bold]"
+        )
     if not blender_ok:
         console.print(
-            "\n[yellow]→ Installare Blender:[/yellow] https://www.blender.org/download/"
+            "\n[yellow]-> Installare Blender:[/yellow] "
+            "https://www.blender.org/download/"
         )
-    if asset_count == 0:
+    if asset_count == 0 and glb_count == 0:
         console.print(
-            f"\n[yellow]→ Nessun asset .obj in {assets_dir}.[/yellow] "
-            "Eseguire [bold]make generate-primitives[/bold] per creare asset di base."
+            f"\n[yellow]-> Nessun asset in {assets_dir}.[/yellow] "
+            "Eseguire [bold]make generate-primitives[/bold] "
+            "o usare [bold]--polyhaven[/bold] per scaricare asset realistici."
         )
 
 
@@ -572,7 +981,7 @@ def validate(json_file: str) -> None:
             f"{len(objects)} oggetti validi in [cyan]{json_file}[/cyan]"
         )
         for obj in objects:
-            console.print(
+            console_err.print(
                 f"  • [cyan]{obj.name}[/cyan] @ "
                 f"({obj.x:.2f}, {obj.y:.2f}, {obj.z:.2f}) "
                 f"scale={obj.scale:.2f}"

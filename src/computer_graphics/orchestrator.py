@@ -2,7 +2,8 @@
 Orchestratore principale della pipeline NL2Scene3D.
 
 Coordina le fasi di processamento:
-    Input -> Prompt -> Ollama -> Parsing -> Validazione -> SceneGraph
+ Input -> Prompt -> LLM (Ollama o Gemini) -> Parsing -> Validazione ->
+ ConstraintSolver -> SceneGraph -> SceneObject
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ def _build_collision_feedback_message(
         object_b: Nome del secondo oggetto in collisione.
 
     Returns:
-        Stringa con le istruzioni di rigenera per l'LLM.
+        Stringa con le istruzioni di rigenerazione per l'LLM.
     """
     return (
         f"Il layout precedente causava collisioni irrisolvibili tra l'oggetto "
@@ -163,6 +164,32 @@ def _apply_scene_graph_with_collision_check(
     return adjusted
 
 
+def _apply_constraint_solver(
+    validated: list[SceneObject],
+    assets_dir: str | None = None,
+) -> list[SceneObject]:
+    """
+    Applica il ConstraintSolver deterministico al layout della scena.
+
+    Il solver e piu preciso dello SceneGraph OBB poiche utilizza le
+    dimensioni reali degli asset e gestisce relazioni topologiche.
+
+    Args:
+        validated: Lista di SceneObject validati.
+        assets_dir: Directory degli asset per il calcolo delle dimensioni.
+
+    Returns:
+        Lista di SceneObject con layout risolto.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    from computer_graphics.constraint_solver import solve_layout  # noqa: PLC0415
+
+    assets_path = Path(assets_dir) if assets_dir else None
+    solved = solve_layout(validated, assets_dir=assets_path)
+    return solved
+
+
 def generate_scene_objects(
     scene_description: str,
     model: str | None = None,
@@ -170,6 +197,8 @@ def generate_scene_objects(
     ollama_url: str | None = None,
     timeout: int = 180,
     verbose: bool = True,
+    use_constraint_solver: bool = True,
+    assets_dir: str | None = None,
 ) -> list[SceneObject]:
     """
     Funzione principale della pipeline NL2Scene3D.
@@ -178,24 +207,28 @@ def generate_scene_objects(
     validati e privi di collisioni, pronti per Blender.
 
     Gestisce i fallimenti di parsing e di collisioni con retry automatici.
+    Supporta Ollama (locale), OpenAI e Gemini (cloud) come provider LLM.
 
     Args:
         scene_description: Testo descrittivo della scena in linguaggio naturale.
-        model: Nome del modello Ollama da usare. Se None, usa il default da config.
+        model: Nome del modello da usare. Se None, usa il default da config.
         max_retries: Numero massimo di tentativi totali.
         ollama_url: URL del server Ollama. Se None, usa il default da config.
         timeout: Secondi di timeout per la chiamata HTTP.
         verbose: Se True, stampa progress e risultati a terminale.
+        use_constraint_solver: Se True, applica il ConstraintSolver
+            deterministico in aggiunta allo SceneGraph OBB.
+        assets_dir: Directory degli asset per il ConstraintSolver.
 
     Returns:
         Lista di SceneObject validati e posizionati senza collisioni.
 
     Raises:
-        OllamaConnectionError: Se Ollama non è raggiungibile dopo i retry.
+        LLMConnectionError: Se il provider LLM non è raggiungibile dopo i retry.
         RuntimeError: Se dopo max_retries non si ottiene JSON valido e
             privo di collisioni irrisolvibili.
     """
-    from computer_graphics.config_loader import ConfigLoader
+    from computer_graphics.config_loader import ConfigLoader  # noqa: PLC0415
 
     # Carica configurazione
     ollama_cfg = ConfigLoader.get("ollama", default={})
@@ -207,7 +240,7 @@ def generate_scene_objects(
 
     llm_provider = ConfigLoader.get("llm", "provider", default="ollama")
 
-    client_params = {
+    client_params: dict[str, object] = {
         "timeout": timeout,
         "max_connection_retries": max_conn_retries,
         "retry_delay": conn_retry_delay,
@@ -215,15 +248,37 @@ def generate_scene_objects(
 
     if llm_provider == "ollama":
         client_params["base_url"] = ollama_url
+    elif llm_provider == "gemini":
+        api_key = ConfigLoader.get("llm", "api_key", default="")
+        gemini_model = ConfigLoader.get(
+            "llm", "model", default="gemini-3-flash-preview"
+        )
+        client_params["api_key"] = api_key
+        if gemini_model:
+            client_params["model"] = gemini_model
+        # Rimuovi parametri non supportati da Gemini
+        client_params.pop("max_connection_retries", None)
+        client_params["max_connection_retries"] = int(
+            client_params.pop("max_connection_retries", 3)  # type: ignore[call-overload]
+            if False
+            else max_conn_retries
+        )
     else:
-        # Per OpenAI/altri, carica da config avanzata
         client_params["api_key"] = ConfigLoader.get("llm", "api_key", default="")
         client_params["base_url"] = ConfigLoader.get("llm", "base_url", default="")
 
     client = get_llm_client(llm_provider, **client_params)
+    
+    # Preparazione prompt con catalogo dinamico
+    catalog_context = ""
+    if assets_dir:
+        from computer_graphics.poly_haven_catalog import PolyHavenCatalog  # noqa: PLC0415
+        ph = PolyHavenCatalog(assets_dir)
+        catalog_context = ph.get_catalog_summary()
+
     builder = PromptBuilder(model=model)
 
-    # Verifica connessione Ollama
+    # Verifica connessione
     if verbose:
         with console.status(
             f"[bold yellow]Verifica connessione {llm_provider}...[/bold yellow]"
@@ -233,9 +288,12 @@ def generate_scene_objects(
                     raise LLMConnectionError(
                         "Ollama non risponde. Avviare con: ollama serve"
                     )
-                raise LLMConnectionError(f"Provider {llm_provider} non risponde.")
+                raise LLMConnectionError(
+                    f"Provider {llm_provider} non risponde. "
+                    "Verificare la configurazione e la connessione internet."
+                )
         console.print(
-            f"[bold green]✓[/bold green] {llm_provider.capitalize()} connesso."
+            f"[bold green][/bold green] {llm_provider.capitalize()} connesso."
         )
 
     last_exception: Exception | None = None
@@ -252,7 +310,7 @@ def generate_scene_objects(
             )
 
         if not message_history:
-            payload = builder.build(scene_description)
+            payload = builder.build(scene_description, catalog_context=catalog_context)
             # Inizializza la history con system + user message
             message_history = list(payload["messages"])
 
@@ -267,7 +325,9 @@ def generate_scene_objects(
                     transient=True,
                 ) as progress:
                     progress.add_task(
-                        description=(f"Interrogazione {model} via {llm_provider}..."),
+                        description=(
+                            f"Interrogazione {model} via {llm_provider}..."
+                        ),
                         total=None,
                     )
                     raw_text = client.chat(
@@ -283,8 +343,24 @@ def generate_scene_objects(
                     response_format="json",
                     **llm_options,
                 )
-        except LLMConnectionError:
-            raise  # Gli errori di rete non si risolvono con retry sul JSON
+        except LLMConnectionError as conn_exc:
+            # Errori di rete: retry con backoff invece di crash immediato
+            last_exception = conn_exc
+            logger.warning(
+                "Tentativo %d/%d fallito (errore server): %s",
+                attempt, max_retries, conn_exc,
+            )
+            if verbose:
+                console.print(
+                    f"[bold yellow][/bold yellow] Errore server al tentativo {attempt}. "
+                    f"Riprovo tra {conn_retry_delay}s..."
+                )
+            if attempt < max_retries:
+                import time  # noqa: PLC0415
+                time.sleep(conn_retry_delay)
+                message_history = []  # Reset per retry pulito
+                continue
+            raise  # Solo dopo tutti i tentativi esauriti
 
         # Aggiunge la risposta del modello alla history (per il ciclo agentico)
         message_history.append({"role": "assistant", "content": raw_text})
@@ -304,12 +380,28 @@ def generate_scene_objects(
             )
             if verbose:
                 console.print(
-                    f"[bold red]✗[/bold red] Tentativo {attempt} "
+                    f"[bold red][/bold red] Tentativo {attempt} "
                     f"fallito (parsing): {exc}"
                 )
             # Reset della history per il prossimo tentativo (retry standard)
             message_history = []
             continue
+
+        # Applica ConstraintSolver deterministico
+        if use_constraint_solver:
+            try:
+                solved_assets_dir = assets_dir or ConfigLoader.get(
+                    "paths", "assets_dir", default=None
+                )
+                validated = _apply_constraint_solver(
+                    validated,
+                    assets_dir=str(solved_assets_dir) if solved_assets_dir else None,
+                )
+                logger.debug("ConstraintSolver applicato con successo.")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ConstraintSolver fallito: %s. Continuo con SceneGraph.", exc
+                )
 
         # Applica SceneGraph con rilevamento collisioni irrisolvibili
         try:
@@ -327,7 +419,7 @@ def generate_scene_objects(
             )
             if verbose:
                 console.print(
-                    f"[bold yellow]⚠[/bold yellow] Tentativo {attempt}: "
+                    f"[bold yellow][/bold yellow] Tentativo {attempt}: "
                     f"collisione irrisolvibile tra "
                     f"[cyan]{collision_exc.object_a}[/cyan] e "
                     f"[cyan]{collision_exc.object_b}[/cyan]. "
@@ -388,11 +480,12 @@ def _print_results_table(objects: list[SceneObject]) -> None:
             f"{obj.z:.3f}",
             f"{obj.rot_z:.3f}",
             f"{obj.scale:.2f}",
-            obj.parent or "—",
-            obj.material_semantics or "—",
+            obj.parent or "---",
+            obj.material_semantics or "---",
         )
 
     console.print(table)
     console.print(
-        f"[bold green]✓[/bold green] " f"{len(objects)} oggetti validati con successo."
+        f"[bold green][/bold green] "
+        f"{len(objects)} oggetti validati con successo."
     )

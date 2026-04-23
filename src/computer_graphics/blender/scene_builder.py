@@ -51,6 +51,46 @@ def clear_scene() -> None:
     logger.debug("Scena pulita: tutti gli oggetti di default eliminati.")
 
 
+def _bl_version() -> tuple[int, int, int]:
+    """Restituisce la versione di Blender come tupla (major, minor, patch)."""
+    return tuple(bpy.app.version)  # type: ignore[return-value]
+
+
+def _socket_name(node: Any, *candidates: str) -> str:
+    """
+    Restituisce il primo nome di socket presente nell'insieme inputs/outputs
+    del nodo tra quelli forniti come candidati.
+
+    Utilizzato per gestire la rinomina dei socket tra versioni di Blender.
+
+    Args:
+        node: Nodo del material node tree.
+        *candidates: Nomi candidati in ordine di preferenza.
+
+    Returns:
+        Il primo nome trovato tra inputs e outputs del nodo.
+
+    Raises:
+        KeyError: Se nessun candidato è presente nel nodo.
+    """
+    all_names: set[str] = set()
+    try:
+        all_names.update(s.name for s in node.inputs)
+        all_names.update(s.name for s in node.outputs)
+    except Exception:  # noqa: BLE001
+        pass
+
+    for name in candidates:
+        if name in all_names:
+            return name
+
+    raise KeyError(
+        f"Nessuno dei socket candidati {candidates} trovato nel nodo "
+        f"'{getattr(node, 'bl_idname', '?')}'. "
+        f"Socket disponibili: {all_names}"
+    )
+
+
 def _setup_default_lighting() -> None:
     """Illuminazione di base: sole principale + fill area."""
     if bpy is None:
@@ -129,7 +169,7 @@ def _setup_lights_from_llm(lights: list[Any]) -> None:
 # ---------------------------------------------------------------------------
 def setup_camera(
     imported_objects: list[Any] | None = None,
-    fov_deg: float = 50.0,
+    fov_deg: float = 50.0,  # Focale grandangolare per interni
     location: tuple[float, float, float] | None = None,
 ) -> None:
     """
@@ -168,11 +208,13 @@ def setup_camera(
     cam.data.lens_unit = "FOV"
     cam.data.angle = math.radians(fov_deg)
 
-    # Orienta verso il centro geometrico della scena
+    # Orienta verso il centro della scena a livello tavolo (z=0.5m)
+    # Evita che oggetti alti (librerie) tirino lo sguardo troppo in alto
     scene_center = (
         _get_scene_center(imported_objects) if imported_objects else (0.0, 0.0, 0.0)
     )
-    direction = mathutils.Vector(scene_center) - mathutils.Vector(cam_location)
+    look_at = (scene_center[0], scene_center[1], 0.5)  # Livello tavolino
+    direction = mathutils.Vector(look_at) - mathutils.Vector(cam_location)
     rot_quat = direction.to_track_quat("-Z", "Y")
     cam.rotation_euler = rot_quat.to_euler()
 
@@ -226,25 +268,14 @@ def _get_scene_center(
         (min(all_z) + max(all_z)) / 2.0,
     )
 
-
 def _compute_optimal_camera_location(
     objects: list[Any],
-    fov_deg: float = 50.0,
-    elevation_factor: float = 0.6,
+    fov_deg: float = 50.0, 
+    elevation_angle: float = 15.0,
 ) -> tuple[float, float, float]:
     """
-    Calcola la posizione ottimale della camera in base al bounding box globale.
-
-    Usa la trigonometria per garantire che la camera inquadri l'intera scena
-    dato il campo visivo specificato .
-
-    Args:
-        objects: Lista di oggetti Blender importati.
-        fov_deg: Campo visivo in gradi.
-        elevation_factor: Fattore di elevazione (0=orizzontale, 1=zenitale).
-
-    Returns:
-        Tupla (x, y, z) della posizione ottimale.
+    Calcola la posizione della camera per inquadratura interni ravvicinata.
+    Vista quasi a livello occhi, grandangolare, simile a foto d'interni professionali.
     """
 
     all_x: list[float] = []
@@ -253,59 +284,40 @@ def _compute_optimal_camera_location(
 
     for obj in objects:
         try:
-            if not hasattr(obj, "data") or obj.data is None:  # type: ignore[attr-defined]
+            if not hasattr(obj, "data") or obj.data is None:
                 continue
-            if hasattr(obj.data, "vertices"):  # type: ignore[attr-defined]
-                mat = obj.matrix_world  # type: ignore[attr-defined]
-                for vert in obj.data.vertices:  # type: ignore[attr-defined]
-                    world_co = mat @ vert.co
-                    all_x.append(world_co.x)
-                    all_y.append(world_co.y)
-                    all_z.append(world_co.z)
-            else:
-                all_x.append(obj.location.x)  # type: ignore[attr-defined]
-                all_y.append(obj.location.y)  # type: ignore[attr-defined]
-                all_z.append(obj.location.z)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+            mat = obj.matrix_world
+            for vert in obj.data.vertices:
+                world_co = mat @ vert.co
+                all_x.append(world_co.x)
+                all_y.append(world_co.y)
+                all_z.append(world_co.z)
+        except Exception:
             pass
 
     if not all_x:
-        return (7.0, -7.0, 5.0)
+        return (5.0, -5.0, 1.7)
 
-    # Bounding box globale
-    bb_min_x, bb_max_x = min(all_x), max(all_x)
-    bb_min_y, bb_max_y = min(all_y), max(all_y)
-    bb_max_z = max(all_z)
-
-    center_x = (bb_min_x + bb_max_x) / 2.0
-    center_y = (bb_min_y + bb_max_y) / 2.0
-    scene_width = bb_max_x - bb_min_x
-    scene_depth = bb_max_y - bb_min_y
-    scene_height = bb_max_z
-
-    # Dimensione diagonale della scena (worst case)
-    diag = math.sqrt(scene_width**2 + scene_depth**2)
-
-    # Distanza minima per inquadrare l'intera scena con il FOV dato
+    center_x = (min(all_x) + max(all_x)) / 2.0
+    center_y = (min(all_y) + max(all_y)) / 2.0
+    
+    size_x = max(all_x) - min(all_x)
+    size_y = max(all_y) - min(all_y)
+    
+    # Distanza basata solo sulla dimensione orizzontale (ignora Z)
+    scene_span = max(size_x, size_y)
     fov_rad = math.radians(fov_deg)
-    dist = (diag / 2.0) / math.tan(fov_rad / 2.0)
-    dist = max(dist, 3.0)  # minimo 3 m
+    dist = (scene_span * 0.9) / math.sin(fov_rad / 2.0)
+    dist = max(dist, 3.0)
+    dist = min(dist, 8.0)
 
-    # Eleva la camera in modo proporzionale all'altezza della scena
-    cam_z = scene_height + dist * elevation_factor
+    # Inquadratura diagonale 3/4
+    elev_rad = math.radians(elevation_angle)
+    cam_x = center_x + dist * math.cos(elev_rad) * 0.707
+    cam_y = center_y - dist * math.cos(elev_rad) * 0.707
+    # Altezza: 1.5m sopra il pavimento (livello occhi) + leggera elevazione
+    cam_z = min(all_z) + 1.5 + dist * math.sin(elev_rad)
 
-    # Posiziona la camera a 45° rispetto alla scena (angolo classico 3/4)
-    cam_x = center_x + dist * 0.707
-    cam_y = center_y - dist * 0.707
-
-    logger.debug(
-        "Camera ottimale: scene_diag=%.2fm, dist=%.2fm -> (%.2f, %.2f, %.2f)",
-        diag,
-        dist,
-        cam_x,
-        cam_y,
-        cam_z,
-    )
     return (cam_x, cam_y, cam_z)
 
 
@@ -321,39 +333,42 @@ _MATERIALS_CONFIG_PATH = (
 
 
 def _load_materials_config() -> dict[str, Any]:
-    """Carica la configurazione dei materiali da config/materials.yaml.
+    """
+    Carica la configurazione dei materiali da config/materials.yaml.
+
+    Usa un singolo lock per l'intera operazione di check-and-load
+    per evitare race condition in ambienti multi-thread.
 
     Returns:
         Dizionario con la sezione ``materials`` del file YAML.
         Dizionario vuoto se il file non esiste o non è leggibile.
     """
     global _MATERIALS_CONFIG  # noqa: PLW0603
+
     with _materials_lock:
         if _MATERIALS_CONFIG is not None:
             return _MATERIALS_CONFIG
 
-    try:
-        import yaml  # noqa: PLC0415
+        _MATERIALS_CONFIG = {}  # Default vuoto
+        try:
+            import yaml  # noqa: PLC0415
 
-        if _MATERIALS_CONFIG_PATH.exists():
-            with _MATERIALS_CONFIG_PATH.open(encoding="utf-8") as fh:
-                data = yaml.safe_load(fh) or {}
-            with _materials_lock:
+            if _MATERIALS_CONFIG_PATH.exists():
+                with _MATERIALS_CONFIG_PATH.open(encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
                 _MATERIALS_CONFIG = data.get("materials", {})
-            logger.debug(
-                "Configurazione materiali caricata da: %s", _MATERIALS_CONFIG_PATH
-            )
-        else:
-            with _materials_lock:
-                _MATERIALS_CONFIG = {}
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "Errore durante il caricamento di %s: %s", _MATERIALS_CONFIG_PATH, exc
-        )
-        with _materials_lock:
-            _MATERIALS_CONFIG = {}
+                logger.debug(
+                    "Configurazione materiali caricata da: %s",
+                    _MATERIALS_CONFIG_PATH,
+                )
+        except ImportError:
+            # Silenzioso: previsto dentro Blender
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Errore caricamento materiali: %s", exc)
 
-    with _materials_lock:
+        return _MATERIALS_CONFIG
+
         return _MATERIALS_CONFIG
 
 
@@ -470,10 +485,24 @@ def _apply_procedural_material(
         ("specular_ior_level", "Specular IOR Level"),
     ]:
         if key in params:
-            bsdf.inputs[bsdf_key].default_value = float(params[key])
+            try:
+                bsdf.inputs[bsdf_key].default_value = float(params[key])
+            except (KeyError, TypeError):
+                pass
 
     if params.get("blend_method"):
-        mat.blend_method = params["blend_method"]
+        # mat.blend_method è stato rimosso in Blender 4.2+.
+        # La gestione della trasparenza usa ora mat.surface_render_method.
+        if _bl_version() >= (4, 2, 0):
+            # "BLENDED" per trasparenza alpha-blended, "DITHERED" per dithered.
+            # BLEND in blend_method corrisponde a BLENDED nel nuovo sistema.
+            blend_val = params["blend_method"]
+            if blend_val == "BLEND":
+                mat.surface_render_method = "BLENDED"  # type: ignore[attr-defined]
+            else:
+                mat.surface_render_method = "DITHERED"  # type: ignore[attr-defined]
+        else:
+            mat.blend_method = params["blend_method"]  # type: ignore[attr-defined]
 
     # ---- Nodi texture procedurali dal YAML ----
     noise_cfg = params.get("noise_texture")
@@ -492,28 +521,56 @@ def _apply_procedural_material(
             ("distortion", "Distortion"),
         ]:
             if attr in noise_cfg:
-                tex_node.inputs[input_name].default_value = float(noise_cfg[attr])
-
+                try:
+                    tex_node.inputs[input_name].default_value = float(
+                        noise_cfg[attr]
+                    )
+                except (KeyError, TypeError):
+                    pass
     elif musgrave_cfg:
-        tex_node = nodes.new("ShaderNodeTexMusgrave")
+        # ShaderNodeTexMusgrave è deprecato da Blender 3.4 e rimosso in 4.1+.
+        # Dalla versione 4.1 il tipo Musgrave è stato integrato in ShaderNodeTexNoise
+        # con parametri aggiuntivi. Usiamo sempre ShaderNodeTexNoise per uniformità.
+        tex_node = nodes.new("ShaderNodeTexNoise")
         tex_node.location = (-400, 0)
         for attr, input_name in [("scale", "Scale"), ("detail", "Detail")]:
             if attr in musgrave_cfg:
-                tex_node.inputs[input_name].default_value = float(musgrave_cfg[attr])
+                try:
+                    tex_node.inputs[input_name].default_value = float(
+                        musgrave_cfg[attr]
+                    )
+                except (KeyError, TypeError):
+                    pass
 
     if tex_node and ramp_cfg:
         ramp = nodes.new("ShaderNodeValToRGB")
         ramp.location = (-150, 0)
-        output_socket = (
-            "Fac" if tex_node.bl_idname == "ShaderNodeTexNoise" else "Height"
-        )
-        links.new(tex_node.outputs[output_socket], ramp.inputs["Fac"])
+
+        # Il socket di output del Noise Texture si chiamava "Fac" fino a
+        # Blender 3.x e "Factor" da Blender 4.0+. Analogo per il Color Ramp.
+        try:
+            noise_out_socket = _socket_name(tex_node, "Factor", "Fac")
+        except KeyError:
+            noise_out_socket = "Fac"
+
+        try:
+            ramp_in_socket = _socket_name(ramp, "Factor", "Fac")
+        except KeyError:
+            ramp_in_socket = "Fac"
+
+        links.new(tex_node.outputs[noise_out_socket], ramp.inputs[ramp_in_socket])
         links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+
         for i, stop in enumerate(ramp_cfg[:2]):
             if i < len(ramp.color_ramp.elements):
                 ramp.color_ramp.elements[i].color = tuple(stop["color"])
+
     elif tex_node:
-        links.new(tex_node.outputs["Fac"], bsdf.inputs["Roughness"])
+        try:
+            noise_out_socket = _socket_name(tex_node, "Factor", "Fac")
+        except KeyError:
+            noise_out_socket = "Fac"
+        links.new(tex_node.outputs[noise_out_socket], bsdf.inputs["Roughness"])
 
     # ---- Texture PBR da file ----
     if assets_dir is not None:
@@ -523,29 +580,44 @@ def _apply_procedural_material(
     # ---- Override Colore ----
     if color_override:
         color_socket = bsdf.inputs["Base Color"]
-        # Se c'è già un link (texture o ramp), lo misceliamo
         if color_socket.is_linked:
-            # Creiamo un nodo Mix (Mix Color in Blender 4.0)
             mix_node = nodes.new("ShaderNodeMix")
             try:
-                # Blender 4.0+ syntax
+                # Blender 4.0+ richiede l'impostazione esplicita del data_type
+                # prima di accedere ai socket per nome.
                 mix_node.data_type = "RGBA"  # type: ignore[attr-defined]
                 mix_node.blend_type = "MIX"  # type: ignore[attr-defined]
-                mix_node.inputs[0].default_value = 0.5  # Factor # type: ignore[index]
+
+                # Accesso ai socket tramite nome invece di indice numerico
+                # per garantire compatibilità cross-version.
+                mix_node.inputs["Factor"].default_value = 0.5  # type: ignore[index]
 
                 old_link = color_socket.links[0]
                 source_output = old_link.from_socket
-                links.new(source_output, mix_node.inputs[6])  # A # type: ignore[index]
-                mix_node.inputs[7].default_value = (
-                    *color_override,
-                    1.0,
-                )  # B # type: ignore[index]
-                links.new(
-                    mix_node.outputs[2], color_socket
-                )  # Result # type: ignore[index]
-            except (AttributeError, KeyError, IndexError):
-                # Fallback per versioni più vecchie o se la struttura differisce
-                # In caso di errore, applichiamo semplicemente l'override
+
+                # In Blender 4.x con data_type RGBA i socket si chiamano
+                # "A" e "B" per i colori di input e "Result" per l'output.
+                try:
+                    links.new(source_output, mix_node.inputs["A"])
+                    mix_node.inputs["B"].default_value = (  # type: ignore[index]
+                        *color_override,
+                        1.0,
+                    )
+                    links.new(mix_node.outputs["Result"], color_socket)
+                except KeyError:
+                    # Fallback per versioni in cui i socket usano nomi diversi
+                    links.new(source_output, mix_node.inputs[6])  # type: ignore[index]
+                    mix_node.inputs[7].default_value = (  # type: ignore[index]
+                        *color_override,
+                        1.0,
+                    )
+                    links.new(mix_node.outputs[2], color_socket)  # type: ignore[index]
+
+            except (AttributeError, KeyError) as exc:
+                logger.warning(
+                    "Mix node color override fallito (%s): "
+                    "applicazione diretta del colore.", exc
+                )
                 color_socket.default_value = (*color_override, 1.0)
         else:
             color_socket.default_value = (*color_override, 1.0)
@@ -558,7 +630,6 @@ def _apply_procedural_material(
         material_semantics,
         obj.name,  # type: ignore[attr-defined]
     )
-
 
 def _link_pbr_textures(
     nodes: Any,
@@ -704,18 +775,10 @@ def import_asset(
     material_semantics: str | None = None,
     color_override: tuple[float, float, float] | None = None,
     similarity_threshold: float = 0.45,
+    _index: Any | None = None,
 ) -> object:
-    """Importa un modello 3D dalla libreria locale con ricerca semantica.
-
-    Invece di richiedere che il nome del file corrisponda esattamente al
-    campo ``name`` generato dall'LLM, utilizza ``AssetIndex`` per trovare
-    l'asset più simile semanticamente. Questo consente di gestire varianti
-    lessicali (es. ``"wooden_table"`` -> ``table.obj``).
-
-    Cerca nell'ordine: match esatto -> ricerca semantica -> proxy cubo.
-
-    Se il modello non ha materiali o è un proxy, applica shader procedurale
-    in base a ``material_semantics``.
+    """
+    Importa un modello 3D dalla libreria locale con ricerca semantica.
 
     Args:
         name: Nome normalizzato dell'asset (es. ``"table"``).
@@ -723,6 +786,9 @@ def import_asset(
         material_semantics: Semantica del materiale per shader procedurale.
         color_override: Override del colore RGB per il materiale procedurale.
         similarity_threshold: Soglia cosine similarity per il RAG (default 0.45).
+        _index: Istanza di AssetIndex precostruita. Se None viene costruita
+            internamente. Passare un'istanza precostruita evita scansioni
+            ripetute del filesystem in loop multi-oggetto.
 
     Returns:
         Riferimento all'oggetto Blender importato o al proxy.
@@ -735,8 +801,8 @@ def import_asset(
     assets_path = Path(assets_dir)
     bpy.ops.object.select_all(action="DESELECT")
 
-    # Costruzione / recupero dell'indice (la classe gestisce la scansione)
-    index = AssetIndex(assets_path)
+    index = _index if _index is not None else AssetIndex(assets_path)
+
     found_path = index.find_best_match_path_for_name(
         name, assets_path, threshold=similarity_threshold
     )
@@ -752,7 +818,26 @@ def import_asset(
             )
             return blender_obj
 
-    # Proxy geometrico
+    # Secondo tentativo: usa la stessa mappa semantica di Poly Haven
+    # così ogni asset che il downloader sa risolvere, l'importer lo trova
+    try:
+        from computer_graphics.poly_haven_catalog import _SEMANTIC_MAPPING  # noqa: PLC0415
+        ph_synonyms = _SEMANTIC_MAPPING.get(name, [])
+    except ImportError:
+        ph_synonyms = []
+
+    for synonym in ph_synonyms:
+        syn_path = index.find_best_match_path_for_name(
+            synonym, assets_path, threshold=0.5
+        )
+        if syn_path:
+            blender_obj = _import_file(str(syn_path), name, syn_path.suffix)
+            if blender_obj:
+                _maybe_apply_semantic_material(
+                    blender_obj, material_semantics, is_proxy=False, color_override=color_override
+                )
+                return blender_obj
+
     logger.warning(
         "Asset '%s' non trovato in %s (RAG threshold=%.2f). Creo proxy cubo.",
         name,
@@ -808,37 +893,93 @@ def _import_file(
     ext: str,
 ) -> object:
     """
-    Importa un file 3D in base all'estensione.
+    Importa un file 3D in base all'estensione applicando la correzione
+    degli assi necessaria per portare ogni formato in Z-up (convenzione Blender).
 
     Args:
         filepath: Percorso assoluto al file.
-        name: Nome da assegnare all'oggetto importato.
+        name: Nome da assegnare all'oggetto radice importato.
         ext: Estensione del file (.obj, .fbx, .glb, .gltf).
 
     Returns:
-        Oggetto Blender importato.
+        Oggetto Blender radice importato, oppure proxy cubo se l'import fallisce.
     """
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
 
     bpy.ops.object.select_all(action="DESELECT")
 
-    if ext == ".obj":
-        # Molte mesh esterne usano Y-Up; forziamo Z-Up in Blender
-        bpy.ops.wm.obj_import(filepath=filepath, forward_axis="NEGATIVE_Z", up_axis="Y")
-    elif ext == ".fbx":
-        bpy.ops.import_scene.fbx(filepath=filepath, axis_forward="-Z", axis_up="Y")
-    elif ext in (".glb", ".gltf"):
-        bpy.ops.import_scene.gltf(filepath=filepath)
+    pre_import_objects: set[str] = {o.name for o in bpy.data.objects}
 
-    if not bpy.context.selected_objects:
-        logger.error("Importazione di '%s' non ha prodotto oggetti.", filepath)
+    try:
+        if ext == ".obj":
+            # OBJ usa Y-up per specifica Wavefront.
+            # forward_axis="Y" + up_axis="Z" porta correttamente in Z-up
+            # senza applicare rotazioni spurie sull'asse X.
+            bpy.ops.wm.obj_import(
+                filepath=filepath,
+                forward_axis="Y",
+                up_axis="Z",
+            )
+        elif ext == ".fbx":
+            # FBX può avere assi variabili a seconda del software di origine.
+            # axis_forward="-Z" + axis_up="Y" è la convenzione Maya/3ds Max → Blender.
+            # use_manual_orientation=True forza l'applicazione ignorando
+            # eventuali metadati di orientamento embedded nel file.
+            bpy.ops.import_scene.fbx(
+                filepath=filepath,
+                axis_forward="-Z",
+                axis_up="Y",
+                use_manual_orientation=True,
+                use_anim=False,
+            )
+        elif ext in (".glb", ".gltf"):
+            # glTF/GLB usa Y-up per specifica (glTF 2.0 §3.3).
+            # Blender gestisce automaticamente la conversione Y-up → Z-up
+            # nell'importatore ufficiale; non serve correzione manuale.
+            bpy.ops.import_scene.gltf(
+                filepath=filepath,
+                merge_vertices=False,
+                import_shading="NORMALS",
+            )
+        else:
+            logger.error("Estensione '%s' non supportata per l'import.", ext)
+            return _create_proxy(name)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Import di '%s' fallito con eccezione: %s", filepath, exc
+        )
         return _create_proxy(name)
 
-    imported = bpy.context.selected_objects[0]
-    imported.name = name
-    logger.debug("Importato '%s' da %s.", name, filepath)
-    return imported
+    # Individua gli oggetti aggiunti dall'operazione di import
+    post_import_objects = [
+        o for o in bpy.data.objects if o.name not in pre_import_objects
+    ]
+
+    if not post_import_objects:
+        logger.error(
+            "L'import di '%s' non ha prodotto oggetti nella scena.", filepath
+        )
+        return _create_proxy(name)
+
+    # Trova l'oggetto radice tra quelli importati: è quello senza parent
+    # oppure il cui parent non appartiene al set appena importato.
+    imported_names: set[str] = {o.name for o in post_import_objects}
+    roots = [
+        o for o in post_import_objects
+        if o.parent is None or o.parent.name not in imported_names
+    ]
+
+    if not roots:
+        # Fallback: usa il primo oggetto di tipo MESH trovato
+        mesh_objects = [o for o in post_import_objects if o.type == "MESH"]
+        root_obj = mesh_objects[0] if mesh_objects else post_import_objects[0]
+    else:
+        root_obj = roots[0]
+
+    root_obj.name = name
+    logger.debug("Importato '%s' da %s (root: %s).", name, filepath, root_obj.name)
+    return root_obj
 
 
 def _create_proxy(name: str) -> object:
@@ -928,11 +1069,13 @@ def _apply_parent_relationships(
     objects_data: list[dict[str, object]],
 ) -> None:
     """
-    Applica le relazioni di parentela tra oggetti Blender .
+    Applica le relazioni di parentela tra oggetti Blender.
 
-    Esegue un secondo passaggio dopo l'importazione di tutti gli oggetti,
-    impostando obj.parent = parent_obj e mantenendo le trasformazioni
-    relative corrette tramite bpy.ops.object.parent_set(keep_transform=False).
+    Imposta obj.parent e aggiorna matrix_parent_inverse per preservare
+    la posizione mondiale dell'oggetto figlio dopo l'assegnazione della
+    parentela. Senza questo aggiornamento, Blender applica la trasformazione
+    del parent alla posizione locale del figlio, causando uno spostamento
+    visivo non desiderato.
 
     Args:
         name_to_blender: Mappa {nome_oggetto: blender_object}.
@@ -941,6 +1084,14 @@ def _apply_parent_relationships(
     """
     if bpy is None:
         raise ImportError("Questo modulo richiede Blender e il modulo bpy")
+
+    try:
+        import mathutils as _mu  # noqa: PLC0415
+    except ImportError:
+        logger.error(
+            "_apply_parent_relationships: mathutils non disponibile."
+        )
+        return
 
     for data in objects_data:
         child_name = str(data.get("name", ""))
@@ -954,24 +1105,39 @@ def _apply_parent_relationships(
 
         if child_obj is None:
             logger.warning(
-                "Gerarchia: oggetto figlio '%s' non trovato in scena.",
+                "Gerarchia: oggetto figlio '%s' non trovato nella scena.",
                 child_name,
             )
             continue
 
         if parent_obj is None:
             logger.warning(
-                "Gerarchia: parent '%s' di '%s' non trovato in scena. "
+                "Gerarchia: parent '%s' di '%s' non trovato nella scena. "
                 "L'oggetto rimane a radice.",
                 parent_name,
                 child_name,
             )
             continue
 
-        # Imposta direttamente la parentela senza usare bpy.ops
-        child_obj.parent = parent_obj
+        # Salva la matrice mondiale corrente del figlio prima dell'assegnazione.
+        # Dopo child_obj.parent = parent_obj, Blender ricalcola la posizione
+        # locale del figlio in base al parent. Impostando matrix_parent_inverse
+        # all'inverso della matrice mondiale del parent, si annulla questo
+        # effetto preservando la posizione mondiale originale del figlio.
+        world_matrix_before = child_obj.matrix_world.copy()  # type: ignore[attr-defined]
 
-        logger.debug("Gerarchia: '%s'.parent = '%s'.", child_name, parent_name)
+        child_obj.parent = parent_obj  # type: ignore[attr-defined]
+        child_obj.matrix_parent_inverse = (  # type: ignore[attr-defined]
+            parent_obj.matrix_world.inverted()  # type: ignore[attr-defined]
+        )
+
+        # Ripristina la matrice mondiale per garantire coerenza dopo
+        # eventuali aggiornamenti del dependency graph.
+        child_obj.matrix_world = world_matrix_before  # type: ignore[attr-defined]
+
+        logger.debug(
+            "Gerarchia applicata: '%s'.parent = '%s'.", child_name, parent_name
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1043,6 +1209,14 @@ def snap_objects_to_surface(
                     break
 
             if hit:
+                # Verifica che la normale del piano colpito sia prettamente verticale (+Z)
+                # per evitare snap su pareti verticali o superfici inclinate eccessivamente.
+                if _normal.z < 0.7:
+                    logger.warning(
+                        "Snap '%s' rilevato su superficie inclinata (normal.z=%.2f). "
+                        "Il posizionamento potrebbe essere errato.",
+                        obj.name, _normal.z
+                    )
                 # Posiziona l'oggetto in modo che il fondo tocchi la superficie
                 obj.location.z = location.z + z_bottom_offset  # type: ignore[attr-defined]
                 logger.debug(
@@ -1072,8 +1246,33 @@ def snap_objects_to_surface(
 apply_physics_settling = snap_objects_to_surface
 
 
-def _create_room_geometry(imported_objects: list[Any]) -> None:
-    """Genera pavimento e pareti basandosi sul bounding box degli oggetti."""
+def _create_room_geometry(
+    imported_objects: list[Any],
+    margin: float = 1.0,
+    wall_height: float = 2.5,
+    ceiling: bool = False,
+) -> None:
+    """
+    Genera pavimento e pareti calcolando il bounding box degli oggetti
+    presenti nella scena e aggiungendo un margine configurabile.
+
+    Args:
+        imported_objects: Lista di oggetti Blender già posizionati nella scena.
+        margin: Margine aggiuntivo oltre il bounding box degli oggetti.
+        wall_height: Altezza delle pareti.
+        ceiling: Se True, genera anche il soffitto.
+    """
+    if bpy is None:
+        raise ImportError("Questo modulo richiede Blender e il modulo bpy")
+
+    try:
+        import mathutils as _mu  # noqa: PLC0415
+    except ImportError:
+        logger.error(
+            "_create_room_geometry: mathutils non disponibile."
+        )
+        return
+
     if not imported_objects:
         return
 
@@ -1082,83 +1281,122 @@ def _create_room_geometry(imported_objects: list[Any]) -> None:
     found = False
 
     for obj in imported_objects:
-        if obj.type == "MESH":
-            for corner in obj.bound_box:
-                world_corner = obj.matrix_world @ mathutils.Vector(corner)
-                for i in range(3):
-                    global_min[i] = min(global_min[i], world_corner[i])
-                    global_max[i] = max(global_max[i], world_corner[i])
-            found = True
+        if not hasattr(obj, "type") or obj.type != "MESH":
+            continue
+        if not hasattr(obj, "bound_box"):
+            continue
+        for corner in obj.bound_box:
+            world_corner = obj.matrix_world @ _mu.Vector(corner)
+            for i in range(3):
+                if world_corner[i] < global_min[i]:
+                    global_min[i] = world_corner[i]
+                if world_corner[i] > global_max[i]:
+                    global_max[i] = world_corner[i]
+        found = True
 
     if not found:
         return
-
-    from computer_graphics.config_loader import ConfigLoader
-
-    margin = ConfigLoader.get("room_mode", "margin", default=2.0)
-    wall_height = ConfigLoader.get("room_mode", "wall_height", default=3.0)
-    ceiling = ConfigLoader.get("room_mode", "ceiling", default=False)
 
     min_x = global_min[0] - margin
     max_x = global_max[0] + margin
     min_y = global_min[1] - margin
     max_y = global_max[1] + margin
+    floor_z = global_min[2]  # Il pavimento è al minimo Z degli oggetti, non a 0
 
-    width = max_x - min_x
-    depth = max_y - min_y
-    center_x = (min_x + max_x) / 2
-    center_y = (min_y + max_y) / 2
+    width = max_x - min_x   # Estensione sull'asse X
+    depth = max_y - min_y   # Estensione sull'asse Y
+    center_x = (min_x + max_x) / 2.0
+    center_y = (min_y + max_y) / 2.0
 
-    import bpy
+    # --- Pavimento con materiale ---
+    bpy.ops.mesh.primitive_plane_add(
+        size=1.0,
+        location=(center_x, center_y, floor_z),
+    )
+    floor_obj = bpy.context.object
+    floor_obj.name = "Room_Floor"
+    # Il plane primitivo ha dimensione 1x1 nello spazio locale.
+    # La scala porta alle dimensioni reali in unità Blender.
+    floor_obj.scale = (width, depth, 1.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    # Materiale pavimento (parquet caldo)
+    floor_mat = bpy.data.materials.new(name="Floor_Material")
+    floor_mat.use_nodes = True
+    floor_bsdf = floor_mat.node_tree.nodes.get("Principled BSDF")
+    if floor_bsdf:
+        floor_bsdf.inputs["Base Color"].default_value = (0.45, 0.32, 0.22, 1.0)
+        floor_bsdf.inputs["Roughness"].default_value = 0.7
+    floor_obj.data.materials.append(floor_mat)
 
-    # Floor
-    bpy.ops.mesh.primitive_plane_add(size=1, location=(center_x, center_y, 0))
-    floor = bpy.context.object
-    floor.name = "Room_Floor"
-    floor.scale = (width, depth, 1)
-
-    # Walls
+    # --- Pareti ---
+    # Generiamo 4 pareti ma ne nascondiamo una per la visibilità (quella vicina alla camera)
     walls_data = [
-        (
-            "Wall_N",
-            (center_x, max_y, wall_height / 2),
-            (width, wall_height),
-            (math.radians(90), 0, 0),
-        ),
-        (
-            "Wall_S",
-            (center_x, min_y, wall_height / 2),
-            (width, wall_height),
-            (math.radians(90), 0, 0),
-        ),
-        (
-            "Wall_E",
-            (max_x, center_y, wall_height / 2),
-            (depth, wall_height),
-            (math.radians(90), 0, math.radians(90)),
-        ),
-        (
-            "Wall_W",
-            (min_x, center_y, wall_height / 2),
-            (depth, wall_height),
-            (math.radians(90), 0, math.radians(90)),
-        ),
+        # (Posizione, Rotazione Z, Nome, Scala X)
+        ((center_x, min_y, floor_z + wall_height / 2), 0.0, "Wall_South", width),
+        ((center_x, max_y, floor_z + wall_height / 2), 3.14159, "Wall_North", width),
+        ((min_x, center_y, floor_z + wall_height / 2), 1.5708, "Wall_West", depth),
+        ((max_x, center_y, floor_z + wall_height / 2), -1.5708, "Wall_East", depth),
     ]
 
-    for w_name, w_loc, w_scale, w_rot in walls_data:
-        bpy.ops.mesh.primitive_plane_add(size=1, location=w_loc, rotation=w_rot)
-        wall = bpy.context.object
-        wall.name = w_name
-        wall.scale = (w_scale[0], w_scale[1], 1)
+    # Trova la camera — può chiamarsi "SceneCamera" o "Camera"
+    cam = bpy.data.objects.get("SceneCamera") or bpy.data.objects.get("Camera")
+    if cam:
+        cam_pos = _mu.Vector(cam.location)
+    else:
+        # Fallback: camera nel quadrante sud-ovest (vista 3/4 classica)
+        cam_pos = _mu.Vector((center_x + 5, center_y - 5, 3))
 
+    # Materiale pareti (bianco crema opaco)
+    wall_mat = bpy.data.materials.new(name="Wall_Material")
+    wall_mat.use_nodes = True
+    wall_bsdf = wall_mat.node_tree.nodes.get("Principled BSDF")
+    if wall_bsdf:
+        wall_bsdf.inputs["Base Color"].default_value = (0.92, 0.90, 0.87, 1.0)
+        wall_bsdf.inputs["Roughness"].default_value = 0.9
+
+    for pos, rot, name, w_scale in walls_data:
+        bpy.ops.mesh.primitive_plane_add(size=1.0, location=pos)
+        wall = bpy.context.object
+        wall.name = name
+        wall.rotation_euler[0] = 1.5708  # 90° su X
+        wall.rotation_euler[2] = rot
+        wall.scale = (w_scale, wall_height, 1.0)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        wall.data.materials.append(wall_mat)
+
+        # Nascondi i 2 muri che ostruiscono la visuale
+        is_obstructing = False
+        if "South" in name and cam_pos.y < center_y: is_obstructing = True
+        if "North" in name and cam_pos.y > center_y: is_obstructing = True
+        if "West" in name and cam_pos.x < center_x: is_obstructing = True
+        if "East" in name and cam_pos.x > center_x: is_obstructing = True
+
+        if is_obstructing:
+            wall.hide_render = True
+            wall.hide_viewport = True
+            logger.info("Muro '%s' nascosto (camera a %.1f, %.1f).", name, cam_pos.x, cam_pos.y)
+
+    # --- Soffitto (opzionale) ---
     if ceiling:
         bpy.ops.mesh.primitive_plane_add(
-            size=1, location=(center_x, center_y, wall_height)
+            size=1.0,
+            location=(center_x, center_y, floor_z + wall_height),
+            # Il soffitto è un plane orizzontale ruotato di 180° su X
+            # in modo che la normale punti verso il basso (nell'interno).
+            rotation=(math.radians(180.0), 0.0, 0.0),
         )
-        ceil = bpy.context.object
-        ceil.name = "Room_Ceiling"
-        ceil.scale = (width, depth, 1)
-        ceil.rotation_euler = (math.radians(180), 0, 0)
+        ceil_obj = bpy.context.object
+        ceil_obj.name = "Room_Ceiling"
+        ceil_obj.scale = (width, depth, 1.0)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    logger.info(
+        "Geometria stanza generata: %.2f m x %.2f m x %.2f m (margin=%.1f).",
+        width,
+        depth,
+        wall_height,
+        margin,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1169,28 +1407,36 @@ def populate_scene(
     assets_dir: str | Path,
     lights: list[Any] | None = None,
     enable_physics: bool = False,
+    room_mode: bool = False,
 ) -> dict[str, list[str]]:
     """
     Popola la scena Blender con tutti gli oggetti della lista.
 
     Flusso:
     1. Importa e posiziona ogni oggetto (con materiale procedurale se richiesto).
-    2. Applica la gerarchia parent-child .
-    3. Opzionalmente esegue la simulazione Rigid Body .
-    4. Aggiorna la camera per inquadrare la scena completa .
-    5. Configura le luci semantiche .
+    2. Applica la gerarchia parent-child.
+    3. Genera la geometria della stanza (Room Mode).
+    4. Esegue lo snap degli oggetti sulle superfici.
+    5. Configura la camera sul bounding box finale.
+    6. Configura l'illuminazione.
 
     Args:
         objects: Lista di SceneObject (o dict con stessi campi).
         assets_dir: Percorso alla directory degli asset 3D.
-        lights: Lista di LightObject per illuminazione semantica .
-        enable_physics: Se True, esegue il settling fisico .
+        lights: Lista di LightObject per illuminazione semantica.
+        enable_physics: Se True, esegue il settling fisico.
 
     Returns:
         Dizionario con chiavi "imported", "proxies", "skipped".
     """
 
     assets_dir = Path(assets_dir)
+
+    # Costruisce l'indice semantico una sola volta per tutta la pipeline
+    # di importazione. Evita N scansioni del filesystem per N oggetti.
+    from computer_graphics.asset_retriever import AssetIndex  # noqa: PLC0415
+    asset_index = AssetIndex(assets_dir)
+
     results: dict[str, list[str]] = {
         "imported": [],
         "proxies": [],
@@ -1230,7 +1476,11 @@ def populate_scene(
 
         try:
             blender_obj = import_asset(
-                name, assets_dir, mat_sem_str, color_override=color_override_tuple
+                name,
+                assets_dir,
+                mat_sem_str,
+                color_override=color_override_tuple,
+                _index=asset_index,
             )
 
             place_object(
@@ -1257,27 +1507,53 @@ def populate_scene(
             logger.error("Errore durante import di '%s': %s", name, exc)
             results["skipped"].append(name)
 
-    # Applicazione delle relazioni di parentela gerarchica tra gli oggetti
+    # Passo 1: Applicazione delle relazioni di parentela gerarchica.
+    # Deve avvenire prima dello snap per avere le posizioni mondiali corrette.
     logger.info("Applicazione gerarchia parent-child...")
     _apply_parent_relationships(name_to_blender, all_objects_data)
 
-    # Regolazione della telecamera per l'inquadratura ottimale della scena
+    # Passo 2: Configurazione della camera sul bounding box aggiornato.
+    # Viene calcolata prima della stanza per permettere ai muri di nascondersi correttamente.
     logger.info("Aggiornamento camera sul bounding box della scena...")
-    # setup_camera(imported_objects=imported_blender_objects)
-    setup_camera(location=(4, -4, 3))
+    setup_camera(imported_objects=imported_blender_objects)
 
-    from computer_graphics.config_loader import ConfigLoader
-
-    if ConfigLoader.get("room_mode", "enabled", default=False):
+    # Passo 3: Generazione della geometria della stanza (se abilitata).
+    if room_mode:
         logger.info("Generazione automatica stanza (Room Mode)...")
-        _create_room_geometry(imported_blender_objects)
+        _create_room_geometry(
+            imported_blender_objects,
+            margin=0.5,
+            wall_height=3.0,
+            ceiling=False,
+        )
+        # Illuminazione studio per interni
+        logger.info("Configurazione illuminazione studio per interni...")
+        sc = _get_scene_center(imported_blender_objects)
+        wh = 2.5  # Wall height usata per _create_room_geometry
+        # Luce principale dall'alto (simula luce naturale)
+        bpy.ops.object.light_add(type='AREA', location=(sc[0] - 1, sc[1], wh - 0.3))
+        key_light = bpy.context.object
+        key_light.name = "Room_KeyLight"
+        key_light.data.energy = 300.0
+        key_light.data.size = 3.0
+        key_light.data.color = (1.0, 0.96, 0.92)
+        key_light.rotation_euler = (0.5, 0.0, 0.0)
+        # Luce di riempimento dal lato opposto
+        bpy.ops.object.light_add(type='AREA', location=(sc[0] + 2, sc[1] - 2, wh * 0.6))
+        fill_light = bpy.context.object
+        fill_light.name = "Room_FillLight"
+        fill_light.data.energy = 100.0
+        fill_light.data.size = 4.0
+        fill_light.data.color = (0.95, 0.95, 1.0)
 
-    # Posizionamento istantaneo degli oggetti sulle superfici di supporto
+    # Passo 4: Snap degli oggetti sulle superfici via raycasting.
+    # Eseguito dopo la generazione della stanza per avere il pavimento
+    # disponibile come superficie di atterraggio.
     if enable_physics and imported_blender_objects:
         logger.info("Avvio surface snap via raycasting...")
         snap_objects_to_surface(imported_blender_objects)
 
-    # Configurazione dell'illuminazione semantica basata sul contesto
+    # Passo 5: Configurazione dell'illuminazione.
     setup_lighting(lights=lights)
 
     logger.info(

@@ -368,35 +368,9 @@ Before proceeding, ensure the following are installed:
 1. **Python 3.10+** — [Download](https://www.python.org/downloads/)
 2. **Git** — [Download](https://git-scm.com/)
 3. **Blender 4.0+** — [Download](https://www.blender.org/download/)
-4. **Ollama** — [Download](https://ollama.com)
-
-### Installing Ollama
-
-Ollama is the only component that requires a separate installation. It exposes a local HTTP server on port 11434 to handle inference requests.
-
-**Windows (PowerShell with administrator privileges):**
-
-```powershell
-winget install Ollama.Ollama
-```
-
-After installation, download a model (one-time operation):
-
-```powershell
-# Start the server (keep this terminal open during the session)
-ollama serve
-
-# Download a model (~2 GB for phi3, ~4 GB for llama3)
-ollama pull llama3
-```
-
-**Supported models:**
-
-| Model | Size | Notes |
-|---|---|---|
-| `phi3` | ~2 GB | Lightweight, suitable for low-RAM machines |
-| `llama3` | ~4 GB | **Recommended** — best quality/speed balance |
-| `mistral` | ~4 GB | Valid alternative |
+4. **LLM Provider** (choose one):
+   - **Google Gemini** (Recommended): Create a free API key at [Google AI Studio](https://aistudio.google.com/).
+   - **Ollama** (Offline): [Download](https://ollama.com) for local inference.
 
 ### Installing the Project
 
@@ -418,16 +392,17 @@ pip install -e ".[dev]"
 # Install pre-commit hooks
 pre-commit install
 
-# Copy the environment configuration file
+# Copy the environment configuration file and add your API key
 cp .env.example .env
+# Edit .env and set GEMINI_API_KEY=your_key
 ```
 
 Verify the installation:
 
 ```powershell
-# Verify Ollama is reachable
-python -c "from computer_graphics.ollama_client import OllamaClient; print(OllamaClient().health_check())"
-# Expected output: True
+# Verify LLM connectivity (defaults to Gemini if configured)
+computer-graphics check
+```
 
 # Run the test suite
 make test
